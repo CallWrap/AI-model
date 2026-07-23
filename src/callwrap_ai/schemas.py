@@ -40,32 +40,136 @@ class Transcript(BaseModel):
 
 
 class ConsultationType(str, Enum):
-    """상담유형 9종.
+    """상담유형(SR유형) 8종 — 기관 참고자료(2026-07-21 수령)로 확정.
 
-    기관 메타정보 표(7종)와 '25년 유형별 현황 표(8컬럼: 고객PC 환경·기타 포함)의
-    합집합. 근거는 docs/label_spec.md 참고.
+    유형 혼재 콜은 적기처리기간이 긴 항목을 우선 부여한다 (docs/label_spec.md).
     """
 
-    USAGE = "사용법 문의"
-    DATA_CHECK = "자료 확인"
-    DATA_FIX = "자료 보정"
-    SYSTEM_ERROR = "시스템 오류"
-    POLICY = "정책 및 지침 문의"
-    IMPROVEMENT = "기능 개선"
-    EXTERNAL_DATA_CHECK = "타 기관 자료 확인"
-    CUSTOMER_PC = "고객PC 환경"
+    USAGE = "사용법문의"
+    SYSTEM_ERROR = "시스템오류"
+    CUSTOMER_PC = "고객PC환경"
+    DATA_CHECK = "자료확인"
+    DATA_FIX = "자료보정"
+    POLICY = "정책 및 지침문의"
+    IMPROVEMENT = "기능개선"
     ETC = "기타"
 
 
 class ConsultationCategory(str, Enum):
-    """상담분류 6종."""
+    """상담(업무)중분류 6종 — 기관 참고자료(2026-07-21) 기준.
 
-    INDIVIDUAL = "개별업무"
-    INTEGRATED = "통합업무"
-    COMMON = "공통업무"
-    TAILORED_BENEFIT = "맞춤형 급여"
-    PAN_GOVERNMENT = "범정부"
-    DW = "DW"
+    대분류는 바우처 사업명이며 본 과제 스코프는 '장애인활동지원'으로 고정이라
+    필드로 두지 않는다. 참고자료 원문의 '결제및비용지금'은 명백한 오기이므로
+    '결제및비용지급'으로 바로잡았다 (docs/decisions.md).
+    """
+
+    PAYMENT = "결제및비용지급"
+    RECIPIENT = "대상자관리"
+    FRAUD = "부정사용"
+    PROVIDER_ORG = "제공기관관리"
+    PROVIDER_STAFF = "제공인력관리"
+    MUNICIPAL = "지자체사업관리"
+
+
+class ConsultationSubcategory(str, Enum):
+    """상담(업무)소분류 29종 — 기관 참고자료(2026-07-21) 기준.
+
+    소속 중분류는 SUBCATEGORIES_BY_CATEGORY 참고. 성능 목표 지표는 중분류
+    기준이며 소분류는 보조 출력이다 (docs/label_spec.md).
+    """
+
+    # 결제및비용지급
+    SURCHARGE_RATE = "가산단가"
+    PAYMENT_HISTORY = "결제내역"
+    PAYMENT_METHOD_ERROR = "결제방법 및 오류"
+    MISPAYMENT = "과오결제"
+    TRANSPORT_FEE = "교통비 지급"
+    PAYMENT_ETC = "기타"
+    SERVICE_COST_PAYMENT = "서비스비용 지급"
+    EXCEPTIONAL_PAYMENT = "예외적 결제"
+    EXCEPTIONAL_DISBURSEMENT = "예외지급"
+    # 대상자관리
+    VIRTUAL_ACCOUNT = "가상계좌"
+    RECIPIENT_INFO = "대상자정보"
+    VOUCHER_USAGE = "바우처 사용 방법"
+    VOUCHER_CREATION = "바우처생성"
+    COPAY_DEPOSIT = "본인부담금입금"
+    COPAY_REFUND = "본인부담금환급"
+    APPLICATION_CRITERIA = "신청기준및절차"
+    ELIGIBILITY_CHANGE = "자격변경"
+    CAP_METHOD = "캡방식"
+    # 부정사용
+    REPORT_TARGET = "신고대상"
+    REPORT_PROCEDURE = "신고절차"
+    REWARD = "포상금"
+    # 제공기관관리
+    PROVIDER_OPERATION = "제공기관운영"
+    PROVIDER_INFO = "제공기관정보"
+    # 제공인력관리
+    BENEFIT_REGISTRATION = "급여등록"
+    WORKER_QUALIFICATION = "자격 및 교육"
+    WORKER_INFO = "제공인력 정보"
+    # 지자체사업관리
+    MUNICIPAL_OPERATION = "사업운영 및 기존정보"
+    DEPOSIT_MANAGEMENT = "예탁금관리"
+    HAENGBOK_EUM_LINK = "행복e음 연계"
+
+
+SUBCATEGORIES_BY_CATEGORY: dict[ConsultationCategory, frozenset[ConsultationSubcategory]] = {
+    ConsultationCategory.PAYMENT: frozenset(
+        {
+            ConsultationSubcategory.SURCHARGE_RATE,
+            ConsultationSubcategory.PAYMENT_HISTORY,
+            ConsultationSubcategory.PAYMENT_METHOD_ERROR,
+            ConsultationSubcategory.MISPAYMENT,
+            ConsultationSubcategory.TRANSPORT_FEE,
+            ConsultationSubcategory.PAYMENT_ETC,
+            ConsultationSubcategory.SERVICE_COST_PAYMENT,
+            ConsultationSubcategory.EXCEPTIONAL_PAYMENT,
+            ConsultationSubcategory.EXCEPTIONAL_DISBURSEMENT,
+        }
+    ),
+    ConsultationCategory.RECIPIENT: frozenset(
+        {
+            ConsultationSubcategory.VIRTUAL_ACCOUNT,
+            ConsultationSubcategory.RECIPIENT_INFO,
+            ConsultationSubcategory.VOUCHER_USAGE,
+            ConsultationSubcategory.VOUCHER_CREATION,
+            ConsultationSubcategory.COPAY_DEPOSIT,
+            ConsultationSubcategory.COPAY_REFUND,
+            ConsultationSubcategory.APPLICATION_CRITERIA,
+            ConsultationSubcategory.ELIGIBILITY_CHANGE,
+            ConsultationSubcategory.CAP_METHOD,
+        }
+    ),
+    ConsultationCategory.FRAUD: frozenset(
+        {
+            ConsultationSubcategory.REPORT_TARGET,
+            ConsultationSubcategory.REPORT_PROCEDURE,
+            ConsultationSubcategory.REWARD,
+        }
+    ),
+    ConsultationCategory.PROVIDER_ORG: frozenset(
+        {
+            ConsultationSubcategory.PROVIDER_OPERATION,
+            ConsultationSubcategory.PROVIDER_INFO,
+        }
+    ),
+    ConsultationCategory.PROVIDER_STAFF: frozenset(
+        {
+            ConsultationSubcategory.BENEFIT_REGISTRATION,
+            ConsultationSubcategory.WORKER_QUALIFICATION,
+            ConsultationSubcategory.WORKER_INFO,
+        }
+    ),
+    ConsultationCategory.MUNICIPAL: frozenset(
+        {
+            ConsultationSubcategory.MUNICIPAL_OPERATION,
+            ConsultationSubcategory.DEPOSIT_MANAGEMENT,
+            ConsultationSubcategory.HAENGBOK_EUM_LINK,
+        }
+    ),
+}
 
 
 class ConsultationGrade(str, Enum):
@@ -95,7 +199,8 @@ class Judgment(BaseModel, Generic[T]):
 
 
 class Summary(BaseModel):
-    inquiry: str = Field(description="문의내용 요약 2~3문장 (고객 발화 기준)")
+    title: str = Field(description="요청제목 — 상담시스템 폼의 제목 입력란용 한 줄")
+    inquiry: str = Field(description="문의내용(요청내용) 요약 2~3문장 (고객 발화 기준)")
     resolution: str = Field(description="처리내용 요약 2~3문장 (상담사 발화 기준)")
 
 
@@ -109,6 +214,9 @@ class AnalysisResult(BaseModel):
     summary: Judgment[Summary] | None
     consultation_type: Judgment[ConsultationType] | None
     consultation_category: Judgment[ConsultationCategory] | None
+    consultation_subcategory: Judgment[ConsultationSubcategory] | None = Field(
+        description="소분류 29종 — 보조 출력. 중분류와의 계층 정합은 SUBCATEGORIES_BY_CATEGORY로 검증"
+    )
     grade: Judgment[ConsultationGrade] | None
     needs_followup: Judgment[bool] | None
     needs_faq: Judgment[bool] | None = Field(

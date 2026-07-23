@@ -9,6 +9,7 @@ from callwrap_ai.schemas import (
     AnalysisResult,
     ConsultationCategory,
     ConsultationGrade,
+    ConsultationSubcategory,
     ConsultationType,
     Judgment,
     Summary,
@@ -25,8 +26,9 @@ def analyze(transcript: Transcript) -> AnalysisResult:
     return AnalysisResult(
         summary=Judgment(
             value=Summary(
-                inquiry="(더미) 고객이 소득 자료 보정 신청 방법을 문의함.",
-                resolution="(더미) 상담사가 보정 요청 메뉴 경로를 안내하고 접수 완료를 확인함.",
+                title="(더미) 바우처 결제 오류 확인 요청",
+                inquiry="(더미) 제공기관 담당자가 바우처 결제 처리 중 오류가 반복된다고 문의함.",
+                resolution="(더미) 상담원이 결제 메뉴 경로와 재시도 방법을 안내하고 처리 완료를 확인함.",
             ),
             confidence=0.92,
             evidence_indices=head,
@@ -35,7 +37,12 @@ def analyze(transcript: Transcript) -> AnalysisResult:
             value=ConsultationType.USAGE, confidence=0.95, evidence_indices=head
         ),
         consultation_category=Judgment(
-            value=ConsultationCategory.INDIVIDUAL, confidence=0.72, evidence_indices=head
+            value=ConsultationCategory.PAYMENT, confidence=0.72, evidence_indices=head
+        ),
+        consultation_subcategory=Judgment(
+            value=ConsultationSubcategory.PAYMENT_METHOD_ERROR,
+            confidence=0.58,
+            evidence_indices=head,
         ),
         grade=Judgment(value=ConsultationGrade.NORMAL, confidence=0.55),
         needs_followup=Judgment(value=False, confidence=0.88, evidence_indices=tail),

@@ -6,9 +6,11 @@
 
 from callwrap_ai.pipeline import analyze
 from callwrap_ai.schemas import (
+    SUBCATEGORIES_BY_CATEGORY,
     AnalysisResult,
     ConsultationCategory,
     ConsultationGrade,
+    ConsultationSubcategory,
     ConsultationType,
     Judgment,
     Speaker,
@@ -22,10 +24,12 @@ __all__ = [
     "AnalysisResult",
     "ConsultationCategory",
     "ConsultationGrade",
+    "ConsultationSubcategory",
     "ConsultationType",
     "Judgment",
     "Speaker",
     "Summary",
+    "SUBCATEGORIES_BY_CATEGORY",
     "Transcript",
     "Utterance",
 ]

@@ -9,7 +9,7 @@
 - `analyze(transcript) -> AnalysisResult` 함수 하나만 외부에 노출 (무상태 — DB/HTTP/Celery 모름)
 - `schemas.py` — `Transcript`, `AnalysisResult` 입출력 계약 (4명 공용, 변경 시 전원 리뷰)
 - F1+F4: LLM 요약 + 후속처리 판정 (1회 호출로 통합)
-- F2: 상담유형 9종·상담분류 6종 분류 (LLM few-shot vs 파인튜닝 비교)
+- F2: 상담유형 8종·상담분류(중분류 6종 + 소분류 29종) 분류 (LLM few-shot vs 파인튜닝 비교)
 - F3: 상담등급·악성콜 감지
 - FAQ 생성 필요 판단 (7/14 회의 확정 스코프, 담당 미정) — F1·F4와 같은 LLM 호출에 통합 검토
 - 캘리브레이션(temperature scaling, ECE)
