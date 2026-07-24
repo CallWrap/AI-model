@@ -157,7 +157,36 @@ def main() -> None:
         r += 1
 
     wb.save(OUT)
-    print(f"저장: {OUT.name} (검수 {len(curated)}행)")
+
+    # 검수 전에도 채점기를 돌려볼 수 있게 초안 정답 파일을 함께 출력한다.
+    # 검수가 끝나면 확정본으로 대체한다 (label_status로 구분).
+    draft = SCN_DIR / "gold_draft.jsonl"
+    with draft.open("w", encoding="utf-8") as f:
+        for scn in curated:
+            lb = labels.get(scn["_id"], {})
+            f.write(
+                json.dumps(
+                    {
+                        "scenario_id": scn["_id"],
+                        "label_status": lb.get("status", "?"),
+                        "consultation_type": lb.get("type"),
+                        "consultation_category": lb.get("category"),
+                        "consultation_subcategory": lb.get("subcategory"),
+                        "grade": lb.get("grade"),
+                        "needs_followup": lb.get("followup"),
+                        "needs_faq": lb.get("faq"),
+                        "summary": {
+                            "title": lb.get("title", ""),
+                            "inquiry": lb.get("inquiry", ""),
+                            "resolution": lb.get("resolution", ""),
+                        },
+                    },
+                    ensure_ascii=False,
+                )
+                + "\n"
+            )
+
+    print(f"저장: {OUT.name} (검수 {len(curated)}행) · {draft.name} (초안 정답)")
     stat = {}
     for scn in curated:
         s = labels.get(scn["_id"], {}).get("status", "?")
