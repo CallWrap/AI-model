@@ -7,6 +7,15 @@ dependencies = [
     "pydantic>=2.7",
 ]
 
+[project.optional-dependencies]
+# 파인튜닝 전용 (F2 중분류·F3 SR유형 공용). 무거우므로 기본 의존성에서 분리한다.
+# 설치: uv sync --extra train  (다른 파트는 uv sync 로 이 라이브러리를 받지 않는다)
+train = [
+    "torch>=2.2",
+    "transformers>=4.40",
+    "scikit-learn>=1.4",   # 계층 분할·Macro-F1 등 평가 유틸
+]
+
 [dependency-groups]
 dev = [
     "pytest>=8",
