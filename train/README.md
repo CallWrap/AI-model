@@ -67,6 +67,53 @@ done
 
 ---
 
+## 2-1. 학습한 모델로 예측하기
+
+`predict.py`는 저장된 checkpoint를 읽어 분류와 확신도를 출력한다. 추론만 하므로
+모델은 바뀌지 않고, 같은 입력이면 항상 같은 결과가 나온다.
+
+```bash
+uv run --extra train python train/predict.py --file data/samples/demo.txt   # 대본 1건
+uv run --extra train python train/predict.py --file data/scenarios/val.jsonl  # 배치·채점
+uv run --extra train python train/predict.py --text "상담원: ...\n고객: ..."
+```
+
+**입력은 원본 대본 그대로 넣는다.** `화자: 발화`를 줄바꿈으로 이은 평문이면 되고,
+인사말 제거와 512토큰 절단은 학습 때와 동일하게 스크립트가 처리한다.
+
+```
+중분류            확신도
+제공인력관리      0.321
+대상자관리        0.296
+제공기관관리      0.153
+```
+
+`.jsonl`을 주면 줄마다 예측한다. `category` 필드가 있으면 채점까지 해서 무엇을
+무엇으로 착각하는지 보여준다 — 오류 분석용이다.
+
+```
+ID        예측             확신도  정답
+v2-009    제공인력관리     0.321  O
+scn-079   제공인력관리     0.399  X → 제공기관관리
+...
+20건 중 10건 정답 (0.500)
+```
+
+| 옵션 | 기본값 | 설명 |
+|---|---|---|
+| `--model-dir` | `data/models/category-klue-roberta-base-seed42` | checkpoint 경로 |
+| `--top-k` | 3 | 단건일 때 보여줄 후보 수 |
+| `--max-length` | 512 | 학습과 같은 값을 쓴다 |
+
+라벨 순서는 checkpoint의 `config.json`(`id2label`)에서 읽는다. 계약(`schemas.py`)의
+enum 순서가 바뀌어도 이미 학습된 모델은 자기 매핑을 그대로 쓰므로 어긋나지 않는다.
+
+> 전처리는 `preprocess.py`를 **import**해서 쓴다. 복제하면 학습과 추론의 입력이
+> 갈라져 예외 없이 결과만 틀린다. 검증셋 정확도가 `metrics.json`의 값과 일치하는지가
+> 이 경로가 맞게 이어졌는지 확인하는 방법이다.
+
+---
+
 ## 3. 데이터
 
 `data/scenarios/golden_category.jsonl` 100건. FAQ 333건에서 생성한 상담 시나리오를
@@ -158,7 +205,8 @@ Claude·Gemini 독립 라벨링으로 교차검증하고 불일치분을 사람�
 
 **우선순위 상향** (2026-07-29 회의 — 평가 축이 모델 성능이 아니라 서비스 효용으로 확정)
 
-- [ ] 서비스 연결 — `predict` 구현 시 `preprocess.py` 공유. **소분류-중분류 정합 검사 필수**(정합 책임이 AI 파트에 있음 — `docs/decisions.md` 2026-07-26)
+- [x] 추론 스크립트 — `predict.py` (2-1 참고). `preprocess.py`를 import해 전처리를 공유한다
+- [ ] `analyze()` 연결 — `predict.py`의 로직을 파이프라인으로 옮긴다. **소분류-중분류 정합 검사 필수**(정합 책임이 AI 파트에 있음 — `docs/decisions.md` 2026-07-26)
 - [ ] 재현 데이터 품질 개선 — 구어체·중복·끊김 반영. 데이터 자체가 성과물이다
 - [ ] 공개 실음성 데이터로 검증 파이프라인 구성
 
