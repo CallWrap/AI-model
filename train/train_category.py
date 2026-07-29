@@ -15,7 +15,7 @@ val.jsonl(20건)로 Macro-F1을 잰 뒤 모델과 지표를 저장한다.
   모델을 비교하지 않는다. seed 여러 개로 돌려 평균과 편차를 함께 본다.
     for s in 42 7 2026; do uv run --extra train python train/train_category.py --seed $s; done
 
-  이 점수는 FAQ 합성 데이터 기준 내부 지표다. 실데이터 성능을 보장하지 않는다(명세 9.1).
+  이 점수는 재현 데이터 기준 내부 지표다. 실상담 성능을 보장하지 않는다(명세 9.1).
 """
 
 import argparse
