@@ -1,8 +1,40 @@
-# 로컬 전용 데이터 (명세 4.2)
+# 로컬 전용 데이터 — 골든셋·시나리오·학습 모델 (명세 4.2)
 data/
+
+# ⚠️ 음성·기관 데이터 — 절대 커밋 금지 (명세 12장)
+*.wav
+*.mp3
+*.m4a
+*.flac
+
+# 환경변수 — API 키·HF 토큰
+.env
+.env.*
+!.env.example
+
+# 개인 참고본 — 원본은 OneDrive. 커밋 금지
+CallWrap_AI_개발명세.md
+HANDOFF.md
 
 # Python
 .venv/
 __pycache__/
+*.py[cod]
 *.egg-info/
 .pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# OS·에디터
+.DS_Store
+.DS_Store?
+._*
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# 로그
+*.log
