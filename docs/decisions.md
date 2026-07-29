@@ -1,0 +1,76 @@
+# 설계 결정 기록
+
+> 구 모노레포 `docs/decisions.md`에서 **AI 파트 관련 항목만 발췌**했다 (2026-07-28 레포 분리).
+> 타 파트(server-fastapi·server-spring·web) 결정은 각 레포에서 관리한다.
+> 파일 경로는 레포 분리 후 기준으로 갱신했다 (구 `ai/src/...` → `src/...`).
+
+결정할 때마다 아래 형식으로 남긴다. 최신이 위로 오는 역순 정렬.
+
+```
+## {YYYY-MM-DD} · {한 줄 제목} — {작성자}
+
+**배경:** 왜 이 결정이 필요했는지
+**결정:** 무엇을 정했는지 (bullet)
+**영향:** 관련 파일 경로
+```
+
+---
+
+## 2026-07-26 · analysis_results는 JSONB 본체 + 승격 컬럼 하이브리드 (#11) — 정민
+
+> 타 파트(server-fastapi) 결정이나 **소분류 정합 검증 책임이 AI로 넘어온 근거**라 발췌에 포함한다.
+
+**배경:** `AnalysisResult`를 JSONB 한 덩어리로 넣을지 필드별 컬럼으로 펼칠지가 열린 질문이었다.
+**결정:**
+- **하이브리드**: `result` JSONB에 전체를 저장하고, `consultation_type`·`consultation_category`·`grade`만 파생 컬럼으로 승격.
+- JSONB를 원본으로 둔 이유: 계약이 자주 바뀐다(v0.1→v0.2). 전부 컬럼으로 펼치면 계약 바뀔 때마다 마이그레이션이다. `Judgment`(value+confidence+evidence_indices) 중첩·소분류 29종·요약이 JSON으로 자연스럽게 왕복한다.
+- 승격 컬럼 3개만 둔 이유: 대시보드가 거르고 집계하는 저카디널리티 값만. 소분류·confidence·요약은 `result` 안에 둔다.
+- **소분류↔중분류 정합(`SUBCATEGORIES_BY_CATEGORY`)은 DB 제약으로 걸지 않는다 (B안).** 저장 계층이 `analyze()` 판정을 재검증하지 않는다.
+
+**AI 파트 후속:** 정합 책임이 100% AI에 있다. `analyze()` 출력 직전에 `SUBCATEGORIES_BY_CATEGORY`로 검사하고, 어긋나면 소분류를 `None`으로 떨어뜨린다. (Step 2~3에서 구현)
+**영향:** `src/callwrap_ai/pipeline.py`
+
+## 2026-07-25 · F2 파인튜닝 스택: PyTorch + HuggingFace transformers — 성진
+
+**배경:** BERT 계열 파인튜닝(F2 비교군)의 프레임워크 선택.
+**결정:**
+- PyTorch로 간다. TensorFlow 아님.
+- 후보 모델(`klue/roberta-base`, KoELECTRA)이 PyTorch 가중치로만 배포되고 transformers 생태계가 PyTorch 중심이라 TF는 변환 비용이 붙는다.
+- 명세 11장이 MacBook MPS·fp32를 지정 — PyTorch MPS 백엔드 전제. TF의 애플 실리콘 지원은 더 거칠다.
+- 학습은 transformers `Trainer`/`AutoModelForSequenceClassification`으로 감싸 프레임워크 코드를 직접 다룰 일은 적다.
+
+**영향:** `train/train_category.py`, `pyproject.toml` (`train` extra)
+
+## 2026-07-21 · 기관 회신 반영: 분류 체계 확정 및 계약 개정 (schemas v0.2) — 성진
+
+**배경:** 추정으로 채워뒀던 상담유형·상담분류를 기관 회신·참고자료로 확정.
+**결정:**
+- 상담유형은 SR유형 8종으로 확정. 추정으로 넣었던 "타 기관 자료 확인"은 실존하지 않아 제거, 명칭도 기관 표기("사용법문의" 등)로 교체.
+- 상담분류는 기존 6종(개별업무 등)을 폐기하고 사업별 계층(중분류 6·소분류 29)으로 교체. 과제 스코프는 장애인활동지원 사업으로 한정.
+- 소분류까지 AI가 출력하되 **성능 목표는 중분류 기준** — 소분류 29클래스는 골든셋 규모로 평가 불가하므로 보조 출력.
+- 상담시스템 폼에 "요청제목"이 있어 `Summary.title` 추가. 상담등급은 3종 확정.
+- 원문 오기 처리: 중분류 "결제및비용지금" → "결제및비용지급"으로 수정. 소분류 "사업운영 및 기존정보"는 "기준정보" 오타 가능성이 있으나 확실하지 않아 원문 유지.
+
+**영향:** `src/callwrap_ai/schemas.py`, `docs/label_spec.md`, 시나리오 v1(132건)은 구 체계 라벨이라 v2 재생성
+
+## 2026-07-17 · 품질 게이트의 입력은 Transcript 하나로 한정 — 정민
+
+> 타 파트 결정이나 **공용 계약 `Transcript`의 필드 구성 근거**라 발췌에 포함한다.
+
+**배경:** 품질 체크가 pyannote/Whisper 원시 출력을 각자 받으면 게이트가 STT 구현을 알아야 한다 — "교체 지점 무수정" 원칙 위배.
+**결정:**
+- 체크 4개 전부 `Transcript`만 받는다 (`Utterance`에 speaker·start·end·confidence가 이미 다 있어 가능).
+- 대가: 발화 단위보다 세밀한 겹침(프레임 단위)은 못 본다 — 감수.
+- `avg_logprob` → `confidence`(0~1) 정규화는 STT 쪽 책임 (2026-07-24 확정). AI는 정규화된 값을 받는다고 전제한다.
+
+**영향:** `src/callwrap_ai/schemas.py`
+
+## 2026-07-15 · FAQ 생성 필요 판단을 AI 분석 스코프에 포함 — 팀 논의(7/14 회의)
+
+**배경:** 명세 10.4에서 미확정이던 "FAQ 생성 필요 판단"이 7/14 회의에서 AI 분석의 산출 항목으로 논의된 것이 확인됨.
+**결정:**
+- `AnalysisResult`에 `needs_faq: Judgment[bool]` 필드로 반영. F4 `needs_followup`과 별개다 — 후속처리는 해당 건 처리, FAQ는 지식베이스 개선으로 목적이 다르다.
+- 통화별로 태깅하고 누적 집계는 대시보드가 한다. 상담사 화면에 노출하지 않는다.
+- 구현은 F1·F4와 같은 LLM 1회 호출에 통합하는 방향을 우선 검토.
+
+**영향:** `src/callwrap_ai/schemas.py`
