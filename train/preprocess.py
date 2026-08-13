@@ -26,3 +26,31 @@ def strip_boilerplate(text: str) -> str:
         lines.pop()
 
     return "\n".join(lines)
+
+
+def utterances_to_text(utterances) -> str:
+    """STT 출력(Utterance 목록) → 학습 때 쓴 '화자: 발화' 평문.
+
+    whisper는 대략 문장 단위로 자르므로 한 사람이 이어 말한 내용이 여러 발화로
+    쪼개진다. 학습 대본은 한 턴이 한 줄이었으므로 **연속된 같은 화자 발화를 합친다.**
+    형태를 맞추는 목적도 있지만, 합치지 않으면 "상담사: "가 줄마다 붙어 512토큰
+    한도를 본문 대신 화자 표기가 잡아먹는다.
+
+    utterances는 Utterance 객체 목록이거나 STT가 준 dict 목록이면 된다.
+    """
+    lines: list[str] = []
+    prev: str | None = None
+
+    for u in utterances:
+        speaker = u["speaker"] if isinstance(u, dict) else u.speaker
+        text = (u["text"] if isinstance(u, dict) else u.text).strip()
+        speaker = getattr(speaker, "value", speaker)  # Enum이면 문자열로
+        if not text:
+            continue
+        if speaker == prev:
+            lines[-1] += " " + text
+        else:
+            lines.append(f"{speaker}: {text}")
+            prev = speaker
+
+    return "\n".join(lines)
