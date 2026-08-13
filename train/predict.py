@@ -1,10 +1,15 @@
 """학습한 중분류 모델에 대본을 넣어 분류·확신도를 출력한다.
 
     uv run --extra train python train/predict.py --file 대본.txt
+    uv run --extra train python train/predict.py --file stt출력.json
     uv run --extra train python train/predict.py --file data/scenarios/val.jsonl
-    uv run --extra train python train/predict.py --text "상담원: ...\n고객: ..."
+    uv run --extra train python train/predict.py --text "상담사: ...\n고객: ..."
 
-  입력은 원본 대본 그대로 넣는다. `화자: 발화` 를 줄바꿈으로 이은 평문이면 되고,
+  입력 형식 세 가지를 확장자로 구분한다.
+    .txt   원본 대본 평문 — `화자: 발화` 를 줄바꿈으로 이은 것
+    .json  STT(whisper) 출력 — {"utterances": [{index, speaker, text, start, end, confidence}, ...]}
+    .jsonl 골든셋 배치 — 줄마다 예측하고 `category` 가 있으면 채점
+
   인사말 제거·512토큰 절단은 학습 때와 똑같이 여기서 처리한다.
 
   jsonl을 주면 줄마다 예측하고, `category` 필드가 있으면 채점까지 한다.
@@ -25,7 +30,7 @@ from pathlib import Path
 import torch
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
-from preprocess import strip_boilerplate
+from preprocess import strip_boilerplate, utterances_to_text
 
 AI = Path(__file__).resolve().parents[1]
 MODELS = AI / "data/models"
@@ -83,6 +88,14 @@ def read_input(args) -> tuple[list[str], list[str | None], list[str | None]]:
     path = Path(args.file)
     if not path.exists():
         sys.exit(f"파일이 없습니다: {path}")
+
+    if path.suffix == ".json":
+        # STT(whisper) 출력 — {"utterances": [{index, speaker, text, start, end, confidence}, ...]}
+        doc = json.loads(path.read_text(encoding="utf-8"))
+        utts = doc.get("utterances") if isinstance(doc, dict) else doc
+        if not utts:
+            sys.exit(f"utterances가 비어 있습니다: {path}")
+        return [utterances_to_text(utts)], [doc.get("call_id") if isinstance(doc, dict) else None], [None]
 
     if path.suffix == ".jsonl":
         rows = [json.loads(ln) for ln in path.open(encoding="utf-8") if ln.strip()]

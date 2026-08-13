@@ -73,12 +73,20 @@ done
 모델은 바뀌지 않고, 같은 입력이면 항상 같은 결과가 나온다.
 
 ```bash
-uv run --extra train python train/predict.py --file data/samples/demo.txt   # 대본 1건
-uv run --extra train python train/predict.py --file data/scenarios/val.jsonl  # 배치·채점
-uv run --extra train python train/predict.py --text "상담원: ...\n고객: ..."
+uv run --extra train python train/predict.py --file data/samples/demo.txt      # 대본 1건
+uv run --extra train python train/predict.py --file data/samples/stt_demo.json # STT 출력 1건
+uv run --extra train python train/predict.py --file data/scenarios/val.jsonl   # 배치·채점
+uv run --extra train python train/predict.py --text "상담사: ...\n고객: ..."
 ```
 
-**입력은 원본 대본 그대로 넣는다.** `화자: 발화`를 줄바꿈으로 이은 평문이면 되고,
+입력 형식은 확장자로 구분한다.
+
+| 확장자 | 내용 |
+|---|---|
+| `.txt` | 원본 대본 평문 — `화자: 발화`를 줄바꿈으로 이은 것 |
+| `.json` | **STT(whisper) 출력** — `{"utterances": [{index, speaker, text, start, end, confidence}, ...]}` |
+| `.jsonl` | 골든셋 배치 — 줄마다 예측하고 `category`가 있으면 채점 |
+
 인사말 제거와 512토큰 절단은 학습 때와 동일하게 스크립트가 처리한다.
 
 ```
@@ -107,6 +115,37 @@ scn-079   제공인력관리     0.399  X → 제공기관관리
 
 라벨 순서는 checkpoint의 `config.json`(`id2label`)에서 읽는다. 계약(`schemas.py`)의
 enum 순서가 바뀌어도 이미 학습된 모델은 자기 매핑을 그대로 쓰므로 어긋나지 않는다.
+
+### STT 출력을 받을 때
+
+whisper는 대략 문장 단위로 자르므로 한 사람이 이어 말한 내용이 여러 발화로 쪼개진다.
+학습 대본은 한 턴이 한 줄이었으므로 `utterances_to_text()`가 **연속된 같은 화자 발화를
+합친다.** 합치지 않으면 `상담사: `가 줄마다 붙어 512토큰을 화자 표기가 잡아먹는다.
+
+화자 표기가 학습 데이터(`상담원`·`문의자`·`제공기관 담당자` 등 15종)와 STT 출력
+(`상담사`·`고객` 2종)에서 다르지만, **검증셋 실측 결과 중분류 성능에 영향이 없어
+재학습하지 않았다.** 모델이 화자 라벨이 아니라 본문으로 판단하고 있다.
+
+| 입력 | 정확도 | 평균 확신도 |
+|---|---|---|
+| 원본 대본 (학습과 동일) | 0.500 | 0.421 |
+| 화자를 STT 형식으로 정규화 | 0.500 | 0.418 |
+| 화자 접두어 제거 | 0.500 | 0.415 |
+| 문장 분할까지 거친 STT 경유 | 0.500 | — |
+
+다만 개별 건은 흔들린다. STT 경유 시 20건 중 2건의 예측이 바뀌었고(하나는 정답→오답,
+하나는 오답→정답) 총점만 같았다. 확신도가 0.3~0.6에 몰려 있어 근소한 차이로 순위가
+뒤집히기 때문이다.
+
+**ASR 오인식 내성**(글자를 무작위로 바꿔 본 대략적인 확인, seed 3회 평균)
+
+| 글자 오류율 | 0% | 2% | 5% | 10% |
+|---|---|---|---|---|
+| 정확도 | 0.500 | 0.500 | 0.467 | 0.467 |
+
+10%까지 망가져도 크게 무너지지 않는다. 다만 검증 20건 기준이라 이 차이는
+노이즈 범위 안이며, 실제 STT 오인식은 무작위가 아니라 특정 용어에 몰리므로
+(`소득 자료` → `소득차료`) 실데이터에서 다시 확인해야 한다.
 
 > 전처리는 `preprocess.py`를 **import**해서 쓴다. 복제하면 학습과 추론의 입력이
 > 갈라져 예외 없이 결과만 틀린다. 검증셋 정확도가 `metrics.json`의 값과 일치하는지가
