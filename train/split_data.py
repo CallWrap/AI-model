@@ -21,7 +21,7 @@ from sklearn.model_selection import train_test_split
 from callwrap_ai.schemas import ConsultationCategory
 
 AI = Path(__file__).resolve().parents[1]
-GOLDEN = AI / "data/scenarios/golden_category.jsonl"
+GOLDEN = AI / "eval/datasets/golden_category.jsonl"  # 커밋됨 (명세 4.2)
 TRAIN_OUT = AI / "data/scenarios/train.jsonl"
 VAL_OUT = AI / "data/scenarios/val.jsonl"
 

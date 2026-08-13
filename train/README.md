@@ -116,9 +116,13 @@ enum 순서가 바뀌어도 이미 학습된 모델은 자기 매핑을 그대�
 
 ## 3. 데이터
 
-`data/scenarios/golden_category.jsonl` 100건. FAQ 333건에서 생성한 상담 시나리오를
+`eval/datasets/golden_category.jsonl` 100건. FAQ 333건에서 생성한 상담 시나리오를
 Claude·Gemini 독립 라벨링으로 교차검증하고 불일치분을 사람이 판정한 골든셋이다
 (사람 검수 26건 + AI 일치 74건). 생성 경위는 `eval/` 참고.
+
+**골든셋은 커밋된다** (명세 4.2 — 작으므로 커밋). 350KB이며, 이게 있어야 다른 사람
+컴퓨터에서도 학습이 재현된다. 기관 제공 PDF와 모델 가중치는 `data/` 에 남아 커밋되지
+않는다. 자세한 내용은 [eval/datasets/README.md](../eval/datasets/README.md) 참고.
 
 계층 분할(stratified split)로 학습 80 / 검증 20을 나눈다. 무작위로 나누면 최소 클래스
 (부정사용 9건)가 검증셋에 0건 들어가 F1 계산이 불가능해진다.
