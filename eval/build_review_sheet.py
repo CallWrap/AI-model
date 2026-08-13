@@ -160,7 +160,7 @@ def main() -> None:
 
     # 검수 전에도 채점기를 돌려볼 수 있게 초안 정답 파일을 함께 출력한다.
     # 검수가 끝나면 확정본으로 대체한다 (label_status로 구분).
-    draft = SCN_DIR / "gold_draft.jsonl"
+    draft = AI_DIR / "eval/datasets/gold_draft.jsonl"
     with draft.open("w", encoding="utf-8") as f:
         for scn in curated:
             lb = labels.get(scn["_id"], {})

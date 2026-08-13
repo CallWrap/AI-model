@@ -21,7 +21,7 @@ from callwrap_ai.schemas import ConsultationCategory
 
 AI = Path(__file__).resolve().parents[1]
 XLSX = Path(sys.argv[1]) if len(sys.argv) > 1 else AI / "data/scenarios/golden_review_diff.xlsx"
-OUT = AI / "data/scenarios/golden_category.jsonl"
+OUT = AI / "eval/datasets/golden_category.jsonl"  # 커밋됨 (명세 4.2)
 
 VALID = {c.value for c in ConsultationCategory}
 

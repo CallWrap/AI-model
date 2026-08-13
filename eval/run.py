@@ -131,7 +131,7 @@ def report_classification(name: str, pairs: list[tuple[str, str]], confs: list[t
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--task", choices=(*TASKS, "all"), default="all")
-    ap.add_argument("--gold", type=Path, default=SCN_DIR / "gold_draft.jsonl")
+    ap.add_argument("--gold", type=Path, default=AI_DIR / "eval/datasets/gold_draft.jsonl")
     ap.add_argument("--limit", type=int)
     args = ap.parse_args()
 
