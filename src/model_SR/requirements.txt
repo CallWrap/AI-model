@@ -1,0 +1,37 @@
+# CallWrap — SR유형 분류 모델 (B안)
+# GPU: RTX 4080 SUPER 16GB / Python 3.11
+#
+# torch는 CUDA 휠을 별도 인덱스에서 받아야 한다:
+#   pip install torch --index-url https://download.pytorch.org/whl/cu124
+# 나머지는 이 파일로:
+#   pip install -r requirements.txt
+
+# --- 핵심 ---
+transformers>=4.44,<5
+tokenizers>=0.19
+safetensors>=0.4
+numpy>=1.26,<3
+scipy>=1.11
+scikit-learn>=1.4
+pandas>=2.1
+
+# --- 설정 / 유틸 ---
+PyYAML>=6.0
+tqdm>=4.66
+python-dotenv>=1.0
+
+# --- 합성 데이터 생성 (P2/P3) ---
+anthropic>=0.40
+pydantic>=2.6
+
+# --- 참고자료(xlsx) 파싱 ---
+openpyxl>=3.1
+pypdf>=4.0
+
+# --- 서빙 (P6, 선택) ---
+# fastapi>=0.110
+# uvicorn[standard]>=0.29
+# pika>=1.3
+
+# --- 리포트 시각화 ---
+matplotlib>=3.8

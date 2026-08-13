@@ -1,0 +1,32 @@
+# --- 비밀정보 (최우선) ---
+.env
+.env.local
+*.key
+*.pem
+# .env.example 은 템플릿이므로 커밋한다
+!.env.example
+
+# --- 파이썬 ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.ipynb_checkpoints/
+
+# --- 데이터 / 산출물 ---
+# 상담 데이터는 개인정보를 포함할 수 있으므로 절대 커밋하지 않는다.
+data/
+runs/
+.cache/
+*.jsonl
+*.npy
+*.pt
+*.safetensors
+
+# --- OS / IDE ---
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
