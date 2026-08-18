@@ -33,9 +33,11 @@ SOURCES = {
     "전용 감정모델": (SCN / "sentiment_scores.jsonl",
                  {"-gap_mean": -1, "-angry_mean": -1, "-angry_tail": -1, "happy_mean": 1}),
     "EXAONE 7.8B": (SCN / "llm_sentiment/scores_exaone3.5_7.8b.jsonl",
-                    {"score_mean": 1, "score_tail": 1, "score_min": 1, "-neg_ratio": -1}),
+                    {"score_tail": 1, "score_mean": 1, "score_head": 1, "score_delta": 1,
+                     "score_min": 1, "-neg_ratio": -1}),
     "Gemma 12B": (SCN / "llm_sentiment/scores_gemma3_12b.jsonl",
-                  {"score_mean": 1, "score_tail": 1, "score_min": 1, "-neg_ratio": -1}),
+                  {"score_tail": 1, "score_mean": 1, "score_head": 1, "score_delta": 1,
+                     "score_min": 1, "-neg_ratio": -1}),
 }
 
 

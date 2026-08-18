@@ -62,11 +62,15 @@ def parse(raw: str, n: int) -> list[float] | None:
 def aggregate(scores: list[float]) -> dict[str, float]:
     if not scores:
         return {}
-    tail = max(1, len(scores) // 3)
+    k = max(1, len(scores) // 3)
+    head = sum(scores[:k]) / k
+    tail = sum(scores[-k:]) / k
     return {
         "score_mean": sum(scores) / len(scores),
         "score_min": min(scores),
-        "score_tail": sum(scores[-tail:]) / tail,
+        "score_head": head,                 # 초반 1/3 — 통화 시작 시 감정
+        "score_tail": tail,                 # 후반 1/3 — 통화가 어떻게 끝났나
+        "score_delta": tail - head,         # 개선(+) / 악화(-)
         "neg_ratio": sum(1 for s in scores if s < -0.3) / len(scores),
         "n_utt": len(scores),
     }
