@@ -9,10 +9,15 @@
 
 출력
   eval/datasets/grade_dataset.jsonl     합본. scenario_id / grade / source / text /
-                                        customer_utterances (고객 발화만 추린 것)
+                                        utterances[{index, role, text}]
 
-감정분석은 **민원인(고객) 발화만** 대상으로 한다. 상담사 발화에는 "안 됩니다" 같은
-안내 표현이 많아 그대로 넣으면 불만으로 잡힌다. 그래서 조립 시점에 갈라 둔다.
+발화는 **순번과 화자 역할을 달아 통째로** 저장한다. 쓰는 쪽에서 골라 쓴다.
+  상담등급   role="고객"   만 쓴다. 상담사 발화를 섞으면 "상담사가 정중해서 악성이
+             아니다"는 잘못된 신호가 생긴다. 악성콜일수록 상담사는 더 정중해진다
+  평가기준표  role="상담사" 만 쓴다 (언어표현·설명력 등 상담사 응대 품질)
+
+순번을 남기는 이유는 두 가지다. 통화 후반부로 갈수록 나빠지는 패턴을 보려면 위치가
+필요하고, 근거 문장을 지목할 때 이 index가 그대로 계약의 evidence_indices가 된다.
 
 등급 라벨은 전부 검수 전이다 (초안 + 생성 시점 값). 성능을 주장할 때 단서를 붙인다.
 감정 표지 제거는 저장하지 않고 소비 시점에 preprocess.strip_emotion_markers()로 건다.
@@ -38,13 +43,18 @@ COUNSELOR = {"상담원", "상담사"}
 OUT_OF_SCOPE = {"scn-115", "scn-128", "scn-019", "scn-121"}
 
 
-def split_speakers(text: str) -> list[str]:
-    """대본 평문 -> 고객 발화만. 화자 라벨이 15종이라 상담사만 골라내고 나머지를 고객으로 본다."""
+def role_of(speaker: str) -> str:
+    """화자 라벨 -> 역할. 대본의 화자 표기가 15종이라 상담사만 골라내고 나머지를 고객으로 본다."""
+    return "상담사" if speaker.strip() in COUNSELOR else "고객"
+
+
+def parse_utterances(text: str) -> list[dict]:
+    """대본 평문 -> [{index, role, text}]. 순번은 대본 등장 순서다."""
     out = []
     for ln in text.split("\n"):
         m = re.match(r"^([^:]{1,20}):\s*(.*)$", ln)
-        if m and m.group(1).strip() not in COUNSELOR and m.group(2).strip():
-            out.append(m.group(2).strip())
+        if m and m.group(2).strip():
+            out.append({"index": len(out), "role": role_of(m.group(1)), "text": m.group(2).strip()})
     return out
 
 
@@ -63,7 +73,7 @@ def main() -> None:
             dropped["등급 라벨 없음"] += 1
             continue
         rows.append({"scenario_id": sid, "grade": grade, "source": draft[sid].get("label_status", "draft"),
-                     "text": g["text"], "customer_utterances": split_speakers(g["text"])})
+                     "text": g["text"], "utterances": parse_utterances(g["text"])})
 
     seen = {r["scenario_id"] for r in rows}
     for line in GENERATED.open(encoding="utf-8"):
@@ -74,10 +84,10 @@ def main() -> None:
             dropped["중복/등급 없음"] += 1
             continue
         text = "\n".join(f"{u['speaker']}: {u['text']}" for u in s["utterances"])
-        cust = [u["text"].strip() for u in s["utterances"]
-                if u["speaker"].strip() not in COUNSELOR and u["text"].strip()]
+        utts = [{"index": i, "role": role_of(u["speaker"]), "text": u["text"].strip()}
+                for i, u in enumerate(x for x in s["utterances"] if x["text"].strip())]
         rows.append({"scenario_id": sid, "grade": grade, "source": "generated",
-                     "text": text, "customer_utterances": cust})
+                     "text": text, "utterances": utts})
         seen.add(sid)
 
     with OUT.open("w", encoding="utf-8") as f:
@@ -90,10 +100,11 @@ def main() -> None:
     if dropped:
         print("  제외:", dict(dropped))
 
-    n_cust = [len(r["customer_utterances"]) for r in rows]
-    print(f"\n고객 발화 총 {sum(n_cust)}개 — 통화당 평균 {sum(n_cust)/len(rows):.1f}개 "
-          f"(최소 {min(n_cust)} / 최대 {max(n_cust)})")
-    empty = [r["scenario_id"] for r in rows if not r["customer_utterances"]]
+    cust = [sum(1 for u in r["utterances"] if u["role"] == "고객") for r in rows]
+    coun = [sum(1 for u in r["utterances"] if u["role"] == "상담사") for r in rows]
+    print(f"\n발화 총 {sum(cust) + sum(coun)}개 — 고객 {sum(cust)} / 상담사 {sum(coun)}")
+    print(f"  통화당 고객 발화 평균 {sum(cust)/len(rows):.1f}개 (최소 {min(cust)} / 최대 {max(cust)})")
+    empty = [r["scenario_id"] for r in rows if not any(u["role"] == "고객" for u in r["utterances"])]
     if empty:
         print(f"  ⚠️ 고객 발화가 0개인 건 {len(empty)}건 — 감정 점수를 낼 수 없다: {empty}")
 
