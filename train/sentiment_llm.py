@@ -2,6 +2,7 @@
 
     uv run python train/sentiment_llm.py --model exaone3.5:7.8b
     uv run python train/sentiment_llm.py --model gemma3:12b
+    uv run python train/sentiment_llm.py --model exaone3.5:7.8b --prompt eval/prompts/sentiment_v2.md
 
 전용 감정 모델과 달리 학습 데이터가 필요 없고, 무감정/중립을 이해한다.
 대신 점수의 근거가 "모델이 그렇게 판단했다"뿐이고 값이 특정 구간에 뭉칠 수 있다
@@ -28,14 +29,21 @@ DATASET = AI / "eval/datasets/grade_dataset.jsonl"
 CACHE_ROOT = AI / "data/scenarios/llm_sentiment"
 API = "http://localhost:11434/api/generate"
 
-PROMPT = """다음은 상담 통화에서 민원인(고객)이 말한 발화 목록이다.
-각 발화에 담긴 감정을 -1.0(매우 부정적·화남)에서 1.0(매우 긍정적·만족) 사이 실수로 매겨라.
-단순한 사실 질문이나 정보 요청은 0.0 근처로 둔다.
+DEFAULT_PROMPT = AI / "eval/prompts/sentiment_v1.md"
 
-발화:
-{lines}
 
-JSON 배열로만 답하라. 설명 금지. 형식: [{{"n":1,"score":-0.8}}, ...]"""
+def load_prompt(path: Path) -> str:
+    """프롬프트 파일에서 `## 프롬프트` 아래 본문만 꺼낸다.
+
+    위쪽 설명은 사람이 읽는 부분이라 모델에 넣지 않는다. 프롬프트를 파일로 두는 이유는
+    한 글자만 바뀌어도 점수가 달라지기 때문이다 — 어느 버전에서 나온 수치인지 남긴다
+    (명세 11장).
+    """
+    text = path.read_text(encoding="utf-8")
+    marker = "\n## 프롬프트\n"
+    if marker not in text:
+        raise SystemExit(f"'## 프롬프트' 절이 없습니다: {path}")
+    return text.split(marker, 1)[1].strip()
 
 
 def ask(model: str, prompt: str, timeout: int = 300) -> str:
@@ -81,7 +89,11 @@ def main() -> None:
     ap.add_argument("--model", required=True)
     ap.add_argument("--keep-markers", action="store_true")
     ap.add_argument("--limit", type=int, help="앞에서 N건만 (시험용)")
+    ap.add_argument("--prompt", type=Path, default=DEFAULT_PROMPT)
     args = ap.parse_args()
+
+    prompt_tmpl = load_prompt(args.prompt)
+    print(f"프롬프트: {args.prompt.name}")
 
     cache = CACHE_ROOT / args.model.replace(":", "_").replace("/", "-")
     cache.mkdir(parents=True, exist_ok=True)
@@ -100,7 +112,7 @@ def main() -> None:
         if scores is None or len(scores) != len(texts):
             lines = "\n".join(f"{j+1}. {t}" for j, t in enumerate(texts))
             try:
-                scores = parse(ask(args.model, PROMPT.format(lines=lines)), len(texts))
+                scores = parse(ask(args.model, prompt_tmpl.format(lines=lines)), len(texts))
             except Exception as e:
                 print(f"  [{i}/{len(rows)}] {sid} 호출 실패: {e}")
                 scores = None
