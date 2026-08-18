@@ -8,6 +8,9 @@
 구 모노레포 이슈 #27 / 개발명세 Step 3. 상담분류 **중분류 6종**을 `klue/roberta-base`
 파인튜닝으로 분류한다.
 
+> 소분류 29종은 [README_subcategory.md](README_subcategory.md) 참고. 중분류 결과가
+> 소분류 성능의 상한을 결정하므로 두 문서를 같이 본다.
+
 ---
 
 ## 1. 결과 요약

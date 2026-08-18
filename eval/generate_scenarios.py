@@ -4,11 +4,15 @@
 v1에서 살린 85건(triage_v1.py)의 중분류가 대상자관리·결제에 편중돼 있어,
 신규분은 비어 있는 중분류(지자체사업관리·제공인력관리·부정사용 등)를 채우도록 배분한다.
 
-실행:  uv run python eval/generate_scenarios.py           # 전체 (이어하기 지원)
+실행:  uv run python eval/generate_scenarios.py           # v2 전체 (이어하기 지원)
        uv run python eval/generate_scenarios.py --smoke   # 첫 배치만
+       uv run python eval/generate_scenarios.py --sub-topup [--target 6]
+           소분류 부족분 채우기. golden_subcategory.jsonl의 현재 분포를 읽어
+           클래스당 --target 건이 되도록 부족한 소분류만 생성한다.
 
-출력:  ai/data/scenarios/batches_v2/batch_NNN.json  (배치별 원본 응답)
-       ai/data/scenarios/scenarios_v2.jsonl         (검증 통과분)
+출력:  data/scenarios/batches_v2/batch_NNN.json   (배치별 원본 응답)
+       data/scenarios/scenarios_v2.jsonl          (검증 통과분)
+       --sub-topup 시에는 batches_sub/ 와 scenarios_sub.jsonl 로 갈린다.
 """
 
 import json
@@ -33,6 +37,9 @@ PROMPT_PATH = AI_DIR / "eval/prompts/scenario_v2.md"
 OUT_DIR = AI_DIR / "data/scenarios"
 BATCH_DIR = OUT_DIR / "batches_v2"
 MERGED = OUT_DIR / "scenarios_v2.jsonl"
+SUB_BATCH_DIR = OUT_DIR / "batches_sub"
+SUB_MERGED = OUT_DIR / "scenarios_sub.jsonl"
+GOLDEN_SUB = AI_DIR / "eval/datasets/golden_subcategory.jsonl"
 
 BATCH_SIZE = 3
 MODEL = "sonnet"
@@ -121,16 +128,59 @@ def build_specs() -> list[dict]:
     return specs
 
 
-def sample_faqs(faqs: list[dict], cat: ConsultationCategory, rng: random.Random, k: int = 2) -> list[dict]:
+def build_subcategory_specs(target: int) -> list[dict]:
+    """golden_subcategory.jsonl의 현재 분포를 읽어 부족한 소분류만 채운다.
+
+    중분류 단위로 배분하는 build_specs()와 달리 **소분류 단위**로 센다.
+    이미 target건을 넘긴 소분류는 만들지 않는다.
+    """
+    if not GOLDEN_SUB.exists():
+        sys.exit(f"소분류 골든셋이 없습니다: {GOLDEN_SUB}\n"
+                 "  uv run --with openpyxl python eval/finalize_subcategory.py 를 먼저 실행합니다.")
+
+    have = Counter(json.loads(l)["subcategory"] for l in GOLDEN_SUB.open(encoding="utf-8"))
+    rng = random.Random(SEED)
+
+    specs: list[dict] = []
+    for cat, subs in SUBCATEGORIES_BY_CATEGORY.items():
+        for sub in sorted(subs, key=lambda x: x.value):
+            for _ in range(max(0, target - have.get(sub.value, 0))):
+                specs.append({"category": cat, "subcategory": sub, "caller": CALLER_BY_CATEGORY[cat]})
+    rng.shuffle(specs)
+
+    # 유형·등급·경계케이스는 v2와 같은 방식으로 고르게 흩는다.
+    boundary = BOUNDARY_PLAN + ["normal"] * max(0, len(specs) - len(BOUNDARY_PLAN))
+    for i, sp in enumerate(specs):
+        sp["id"] = f"sub-{i + 1:03d}"
+        sp["consultation_type"] = TYPE_ORDER[i % len(TYPE_ORDER)].value
+        sp["scenario_type"] = boundary[i]
+        sp["grade"] = (
+            ConsultationGrade.ABUSIVE.value if i % 8 == 1
+            else ConsultationGrade.PRAISE.value if i % 8 == 5
+            else ConsultationGrade.NORMAL.value
+        )
+        sp["needs_followup"] = i % 10 in (0, 3, 7)
+    return specs
+
+
+def sample_faqs(
+    faqs: list[dict], cat: ConsultationCategory, rng: random.Random, k: int = 2, extra: tuple[str, ...] = ()
+) -> list[dict]:
+    """중분류 키워드로 소재 FAQ를 고른다. extra(소분류 어절)가 맞는 FAQ를 우선한다."""
     kws = CATEGORY_KEYWORDS[cat]
     matched = [f for f in faqs if any(kw in f["question"] + f["answer"] for kw in kws)]
+    if extra:
+        narrow = [f for f in matched if any(e in f["question"] + f["answer"] for e in extra)]
+        if len(narrow) >= k:
+            matched = narrow
     return rng.sample(matched or faqs, min(k, len(matched or faqs)))
 
 
 def build_batch_prompt(base: str, batch: list[dict], faqs: list[dict], rng: random.Random) -> str:
     parts = [base, "\n---\n## 이번에 생성할 시나리오 스펙\n"]
     for s in batch:
-        seeds = sample_faqs(faqs, s["category"], rng)
+        extra = tuple(w for w in s["subcategory"].value.replace("및", " ").split() if len(w) >= 2)
+        seeds = sample_faqs(faqs, s["category"], rng, extra=extra)
         parts.append(f"### 스펙 {s['id']}")
         parts.append(
             json.dumps(
@@ -229,6 +279,8 @@ def parse_scenarios(raw: str, batch: list[dict]) -> list[dict]:
 
 def main() -> None:
     smoke = "--smoke" in sys.argv
+    sub_topup = "--sub-topup" in sys.argv
+    target = int(sys.argv[sys.argv.index("--target") + 1]) if "--target" in sys.argv else 6
     rng = random.Random(SEED + 1)
     faqs = [
         json.loads(line)
@@ -236,8 +288,13 @@ def main() -> None:
         if json.loads(line)["id"].startswith(IN_SCOPE_FAQ)
     ]
     base = PROMPT_PATH.read_text(encoding="utf-8")
-    specs = build_specs()
-    BATCH_DIR.mkdir(parents=True, exist_ok=True)
+    if sub_topup:
+        specs, batch_dir, merged = build_subcategory_specs(target), SUB_BATCH_DIR, SUB_MERGED
+        print(f"소분류 부족분 채우기 — 클래스당 목표 {target}건, 생성 대상 {len(specs)}건")
+        print("  ", dict(Counter(sp["subcategory"].value for sp in specs)))
+    else:
+        specs, batch_dir, merged = build_specs(), BATCH_DIR, MERGED
+    batch_dir.mkdir(parents=True, exist_ok=True)
 
     batches = [specs[i : i + BATCH_SIZE] for i in range(0, len(specs), BATCH_SIZE)]
     if smoke:
@@ -245,7 +302,7 @@ def main() -> None:
 
     all_ok = []
     for bi, batch in enumerate(batches):
-        out = BATCH_DIR / f"batch_{bi:03d}.json"
+        out = batch_dir / f"batch_{bi:03d}.json"
         if out.exists():
             try:
                 all_ok += parse_scenarios(out.read_text(encoding="utf-8"), batch)
@@ -267,13 +324,15 @@ def main() -> None:
         all_ok += got
         print(f"[{bi + 1}/{len(batches)}] {len(got)}/{len(batch)}건 성공 (누적 {len(all_ok)})")
 
-    with MERGED.open("w", encoding="utf-8") as f:
+    with merged.open("w", encoding="utf-8") as f:
         for s in all_ok:
             f.write(json.dumps(s, ensure_ascii=False) + "\n")
-    print(f"\n저장: {len(all_ok)}건 -> {MERGED}")
+    print(f"\n저장: {len(all_ok)}건 -> {merged}")
     print("유형:", dict(Counter(s["labels"]["consultation_type"] for s in all_ok)))
     print("중분류:", dict(Counter(s["labels"]["consultation_category"] for s in all_ok)))
     print("등급:", dict(Counter(s["labels"]["grade"] for s in all_ok)))
+    if sub_topup:
+        print("소분류:", dict(Counter(s["labels"]["consultation_subcategory"] for s in all_ok)))
 
 
 if __name__ == "__main__":
