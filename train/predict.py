@@ -30,7 +30,7 @@ from pathlib import Path
 import torch
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
-from preprocess import strip_boilerplate, utterances_to_text
+from callwrap_ai.preprocess import strip_boilerplate, utterances_to_text
 
 AI = Path(__file__).resolve().parents[1]
 MODELS = AI / "data/models"
