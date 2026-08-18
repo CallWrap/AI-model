@@ -30,7 +30,7 @@ from torch.utils.data import DataLoader, TensorDataset
 from transformers import AutoModelForSequenceClassification, AutoTokenizer, get_linear_schedule_with_warmup
 
 from callwrap_ai.schemas import ConsultationCategory
-from preprocess import strip_boilerplate
+from callwrap_ai.preprocess import strip_boilerplate
 
 AI = Path(__file__).resolve().parents[1]
 SCN = AI / "data/scenarios"

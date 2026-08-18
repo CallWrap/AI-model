@@ -31,8 +31,7 @@ from sklearn.metrics import f1_score
 from sklearn.model_selection import StratifiedKFold
 
 AI = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(AI / "train"))  # 학습과 같은 전처리를 쓴다
-from preprocess import strip_boilerplate  # noqa: E402
+from callwrap_ai.preprocess import strip_boilerplate
 
 
 def load(paths: list[Path], label_key: str) -> tuple[list[str], list[str]]:

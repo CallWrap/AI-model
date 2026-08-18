@@ -22,7 +22,7 @@ import time
 import urllib.request
 from pathlib import Path
 
-from preprocess import strip_emotion_markers
+from callwrap_ai.preprocess import strip_emotion_markers
 
 AI = Path(__file__).resolve().parents[1]
 DATASET = AI / "eval/datasets/grade_dataset.jsonl"
