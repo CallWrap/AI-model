@@ -1,0 +1,9 @@
+{
+  "_설명": "상담등급 2축 판정 규칙. 임계값은 데이터에서 찾은 값이므로 데이터가 늘면 다시 맞춘다. 코드에 하드코딩하지 않는다 (명세 4.5).",
+  "_근거": "eval/compare_sentiment.py — EXAONE 3.5 7.8B 감정 점수, 183건 5겹 교차검증",
+  "_패키징_안내": "패키징된 실행용 복사본. 원본은 config/grade_rule.json — 그쪽을 수정 소스로 삼는다. eval/과 마찬가지로 config/도 hatchling 빌드(packages=[\"src/callwrap_ai\"])에 안 걸려서 git 의존성 설치 시 휠에 안 들어간다. config/grade_rule.json을 고치면 이 파일도 같이 고쳐야 실제로 반영된다.",
+  "model": "exaone3.5:7.8b",
+  "abusive_max_score_min": -0.70,
+  "praise_min_score_tail": 0.75,
+  "_우선순위": "악성콜을 놓치지 않는 것이 최우선. 칭찬콜을 일반으로 흘리는 것은 감수한다 (명세 7장)."
+}

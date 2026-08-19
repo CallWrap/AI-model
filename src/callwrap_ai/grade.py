@@ -24,22 +24,47 @@ from callwrap_ai.preprocess import strip_emotion_markers
 from callwrap_ai.schemas import ConsultationGrade, Judgment, Speaker, Transcript
 
 ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_RULE = ROOT / "config/grade_rule.json"
-DEFAULT_PROMPT = ROOT / "eval/prompts/sentiment_v1.md"
+#: 로컬 개발/레포 체크아웃 상태에서 쓰는 경로 — 편집 소스는 여기.
+DEV_RULE = ROOT / "config/grade_rule.json"
+DEV_PROMPT = ROOT / "eval/prompts/sentiment_v1.md"
+#: 패키지 설치 상태(server-fastapi가 git 소스로 callwrap-ai를 uv sync할 때)에서 쓰는 경로.
+# pyproject.toml의 [tool.hatch.build.targets.wheel]이 packages=["src/callwrap_ai"]만 포함해서
+# config/·eval/은 휠에 안 들어간다(summary.py와 동일한 문제 — 실제로 배포 컨테이너에서
+# DEFAULT_RULE.exists()/DEFAULT_PROMPT.exists()가 둘 다 False로 확인됨). 이 파일은 원래
+# DEV_RULE/DEV_PROMPT만 보고 있었고 실패 시 예외를 그대로 던졌는데, judge()의 호출부인
+# analyze()에는 이 예외를 잡는 try/except가 없어서 등급 하나 때문에 분석 전체가 죽었다.
+# 그래서 내용이 같은 사본을 src/callwrap_ai/ 밑에 두고 순서대로 시도하며, 전부 실패하면
+# (summary.py처럼 예외를 던지는 대신) None을 돌려 판정 하나만 부분 실패로 넘긴다 — 원래
+# 이 파일의 독스트링이 약속한 "ollama가 꺼져 있으면 None" 동작과 실패 모드를 통일한다.
+PACKAGED_RULE = Path(__file__).resolve().parent / "config" / "grade_rule.json"
+PACKAGED_PROMPT = Path(__file__).resolve().parent / "prompts" / "sentiment_v1.md"
 API = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434") + "/api/generate"
 TIMEOUT = int(os.environ.get("CALLWRAP_LLM_TIMEOUT", "120"))
 
 
 @lru_cache(maxsize=1)
-def _rule() -> dict:
-    path = Path(os.environ.get("CALLWRAP_GRADE_RULE", DEFAULT_RULE))
-    return json.loads(path.read_text(encoding="utf-8"))
+def _rule() -> dict | None:
+    env_override = os.environ.get("CALLWRAP_GRADE_RULE")
+    candidates = [Path(env_override)] if env_override else [DEV_RULE, PACKAGED_RULE]
+    for path in candidates:
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+    return None  # 규칙 파일을 못 찾음 — 등급 판정 전체를 부분 실패로 넘긴다
 
 
 @lru_cache(maxsize=1)
-def _prompt() -> str:
-    path = Path(os.environ.get("CALLWRAP_SENTIMENT_PROMPT", DEFAULT_PROMPT))
-    return path.read_text(encoding="utf-8").split("\n## 프롬프트\n", 1)[1].strip()
+def _prompt() -> str | None:
+    env_override = os.environ.get("CALLWRAP_SENTIMENT_PROMPT")
+    candidates = [Path(env_override)] if env_override else [DEV_PROMPT, PACKAGED_PROMPT]
+    for path in candidates:
+        try:
+            text = path.read_text(encoding="utf-8")
+            return text.split("\n## 프롬프트\n", 1)[1].strip()
+        except (OSError, IndexError):
+            continue
+    return None  # 프롬프트 파일을 못 찾음 — 등급 판정 전체를 부분 실패로 넘긴다
 
 
 def _ask(prompt: str, model: str) -> str | None:
@@ -71,8 +96,11 @@ def score_utterances(texts: list[str], model: str | None = None) -> list[float] 
     if not texts:
         return None
     rule = _rule()
+    prompt = _prompt()
+    if rule is None or prompt is None:
+        return None  # 규칙·프롬프트 파일을 못 찾음 — 부분 실패로 넘긴다
     lines = "\n".join(f"{i+1}. {strip_emotion_markers(t)}" for i, t in enumerate(texts))
-    raw = _ask(_prompt().format(lines=lines), model or rule["model"])
+    raw = _ask(prompt.format(lines=lines), model or rule["model"])
     return _parse(raw, len(texts)) if raw else None
 
 
@@ -120,5 +148,8 @@ def is_ready(model: str | None = None) -> bool:
             API.replace("/api/generate", "/api/tags"), timeout=5).read())
     except (urllib.error.URLError, OSError, json.JSONDecodeError):
         return False
-    want = model or _rule()["model"]
+    rule = _rule()
+    if model is None and rule is None:
+        return False  # 규칙 파일도 없으면 기본 모델명을 알 수 없다
+    want = model or rule["model"]
     return any(m.get("name") == want for m in tags.get("models", []))

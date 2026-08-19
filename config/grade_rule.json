@@ -1,6 +1,7 @@
 {
   "_설명": "상담등급 2축 판정 규칙. 임계값은 데이터에서 찾은 값이므로 데이터가 늘면 다시 맞춘다. 코드에 하드코딩하지 않는다 (명세 4.5).",
   "_근거": "eval/compare_sentiment.py — EXAONE 3.5 7.8B 감정 점수, 183건 5겹 교차검증",
+  "_패키징_안내": "중요: 실제 런타임(grade.py)이 읽는 건 여기가 아니라 src/callwrap_ai/config/grade_rule.json이다 (git 의존성 설치 시 config/가 휠에 안 들어가는 문제 때문 — summary.py와 동일한 이유). 이 파일을 고치면 그 파일도 같이 고쳐야 실제로 반영된다.",
   "model": "exaone3.5:7.8b",
   "abusive_max_score_min": -0.70,
   "praise_min_score_tail": 0.75,
