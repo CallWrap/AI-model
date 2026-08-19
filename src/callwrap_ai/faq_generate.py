@@ -14,7 +14,14 @@ import urllib.request
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_PROMPT = ROOT / "eval/prompts/faq_v1.md"
+#: 로컬 개발/레포 체크아웃 상태에서 쓰는 경로 — 편집 소스는 여기(summary_v1~v6.md와 같은 자리).
+DEV_PROMPT = ROOT / "eval/prompts/faq_v1.md"
+#: 패키지 설치 상태(server-fastapi가 git 소스로 callwrap-ai를 uv sync할 때)에서 쓰는 경로.
+# pyproject.toml의 [tool.hatch.build.targets.wheel]이 packages=["src/callwrap_ai"]만 포함해서
+# eval/은 휠에 안 들어간다 — 실제로 빌드해서 확인함(휠 안에 eval 관련 파일 0개). 그래서 이 파일과
+# 내용이 동일한 사본을 src/callwrap_ai/prompts/ 밑에 따로 둔다. (summary.py의 eval/prompts/*.md도
+# 같은 문제를 겪고 있을 가능성이 높다 — 별도로 확인·수정 필요, 여기서는 건드리지 않았다.)
+PACKAGED_PROMPT = Path(__file__).resolve().parent / "prompts" / "faq_v1.md"
 DEFAULT_MODEL = "exaone3.5:7.8b"
 API = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434") + "/api/generate"
 # 여러 사례를 한 번에 넣어 요약 1건보다 입력이 커진다 — summary.py 기본(120s)보다 여유를 둔다.
@@ -25,9 +32,17 @@ MAX_CASES = 20
 
 
 def _prompt_template() -> str:
-    path = Path(os.environ.get("CALLWRAP_FAQ_PROMPT", DEFAULT_PROMPT))
-    text = path.read_text(encoding="utf-8")
-    return text.split("\n## 프롬프트\n", 1)[1].strip()
+    env_override = os.environ.get("CALLWRAP_FAQ_PROMPT")
+    candidates = [Path(env_override)] if env_override else [DEV_PROMPT, PACKAGED_PROMPT]
+    last_error: Exception | None = None
+    for path in candidates:
+        try:
+            text = path.read_text(encoding="utf-8")
+            return text.split("\n## 프롬프트\n", 1)[1].strip()
+        except OSError as e:
+            last_error = e
+            continue
+    raise FileNotFoundError(f"FAQ 프롬프트 파일을 찾지 못했습니다 (시도한 경로: {candidates})") from last_error
 
 
 def _ask(prompt: str, model: str) -> str | None:

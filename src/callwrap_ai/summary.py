@@ -14,16 +14,33 @@ from pathlib import Path
 from callwrap_ai.schemas import Judgment, Summary, Transcript
 
 ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_PROMPT = ROOT / "eval/prompts/summary_v6.md"
+#: 로컬 개발/레포 체크아웃 상태에서 쓰는 경로 — 편집 소스는 여기.
+DEV_PROMPT = ROOT / "eval/prompts/summary_v6.md"
+#: 패키지 설치 상태(server-fastapi가 git 소스로 callwrap-ai를 uv sync할 때)에서 쓰는 경로.
+# pyproject.toml의 [tool.hatch.build.targets.wheel]이 packages=["src/callwrap_ai"]만 포함해서
+# eval/은 휠에 안 들어간다(실제로 빌드해서 확인함 — eval 관련 파일 0개). DEV_PROMPT만 보고 있으면
+# 이 파일을 git 소스로 설치한 환경(예: server-fastapi Docker 이미지)에서 read_text가 조용히
+# OSError를 던지고, 그게 _ask 호출 전에 잡혀서 "모델이 판단 못 함"과 똑같이 보인다 — 실제로는
+# 프롬프트 파일을 못 찾은 것뿐인데 구분이 안 됐던 버그. 그래서 내용이 같은 사본을
+# src/callwrap_ai/prompts/ 밑에 두고 순서대로 시도한다.
+PACKAGED_PROMPT = Path(__file__).resolve().parent / "prompts" / "summary_v6.md"
 DEFAULT_MODEL = "exaone3.5:7.8b"
 API = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434") + "/api/generate"
 TIMEOUT = int(os.environ.get("CALLWRAP_LLM_TIMEOUT", "120"))
 
 
 def _prompt() -> str:
-    path = Path(os.environ.get("CALLWRAP_SUMMARY_PROMPT", DEFAULT_PROMPT))
-    text = path.read_text(encoding="utf-8")
-    return text.split("\n## 프롬프트\n", 1)[1].strip()
+    env_override = os.environ.get("CALLWRAP_SUMMARY_PROMPT")
+    candidates = [Path(env_override)] if env_override else [DEV_PROMPT, PACKAGED_PROMPT]
+    last_error: Exception | None = None
+    for path in candidates:
+        try:
+            text = path.read_text(encoding="utf-8")
+            return text.split("\n## 프롬프트\n", 1)[1].strip()
+        except OSError as e:
+            last_error = e
+            continue
+    raise FileNotFoundError(f"요약 프롬프트 파일을 찾지 못했습니다 (시도한 경로: {candidates})") from last_error
 
 
 def _ask(prompt: str, model: str) -> str | None:
