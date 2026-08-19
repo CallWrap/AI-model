@@ -5,6 +5,9 @@ checkpoint도 없다. 그 환경에서 analyze()는 해당 필드를 None으로 
 모듈명을 넣는다 (명세 4.1). 테스트는 값이 아니라 **계약을 지키는지**를 본다.
 """
 
+import pytest
+
+import callwrap_ai.pipeline as pipeline
 from callwrap_ai import (
     SUBCATEGORIES_BY_CATEGORY,
     AnalysisResult,
@@ -15,6 +18,15 @@ from callwrap_ai import (
     Utterance,
     analyze,
 )
+
+
+@pytest.fixture(autouse=True)
+def no_local_models(monkeypatch):
+    """계약 테스트는 설치된 로컬 모델과 Ollama 상태에 의존하지 않는다."""
+    monkeypatch.setattr(pipeline.classify, "predict_category", lambda _: None)
+    monkeypatch.setattr(pipeline.classify, "predict_subcategory", lambda *_: None)
+    monkeypatch.setattr(pipeline.grade_mod, "judge", lambda _: None)
+    monkeypatch.setattr(pipeline.summary_mod, "summarize", lambda _: None)
 
 
 def make_transcript() -> Transcript:
