@@ -137,13 +137,18 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--pred", nargs="*", type=Path, help="비우면 llm_summary의 pred_*.jsonl 전부")
     ap.add_argument("--show", type=int, default=5, help="실패 사례 표시 개수")
+    ap.add_argument("--gold", type=Path, default=GOLD, help="정답 파일 (재작성본 비교용)")
+    ap.add_argument("--only", type=Path, help="이 파일에 있는 scenario_id만 채점")
     args = ap.parse_args()
 
-    gold = {json.loads(l)["scenario_id"]: json.loads(l) for l in GOLD.open(encoding="utf-8")}
+    gold = {json.loads(l)["scenario_id"]: json.loads(l) for l in args.gold.open(encoding="utf-8")}
+    if args.only:
+        keep = {json.loads(l)["scenario_id"] for l in args.only.open(encoding="utf-8")}
+        gold = {k: v for k, v in gold.items() if k in keep}
     preds = args.pred or sorted(PRED_DIR.glob("pred_*.jsonl"))
     if not preds:
         raise SystemExit(f"예측 파일이 없습니다: {PRED_DIR}")
-    print(f"정답 {len(gold)}건 | 채점 대상 {len(preds)}개")
+    print(f"정답 {len(gold)}건 ({args.gold.name}) | 채점 대상 {len(preds)}개")
     for p in preds:
         evaluate(gold, p, args.show)
 
