@@ -16,6 +16,9 @@ data/
 CallWrap_AI_개발명세.md
 HANDOFF.md
 
+# 오프라인 반입 번들 (wheel·checkpoint·ollama 모델 포함, 커밋 금지)
+bundle/
+
 # Python
 .venv/
 __pycache__/
