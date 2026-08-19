@@ -1,7 +1,7 @@
 """analyze() — 모듈 조립. 소유: 김성진.
 
-현재 상태: **F2(중분류·소분류)와 F3(상담등급)은 실제 판정, 나머지는 더미다.**
-F1 요약·F4 후속처리·FAQ필요는 상용 LLM 프롬프트로 별도 담당이며 아직 붙지 않았다.
+현재 상태: **F1(요약)·F2(중분류·소분류)·F3(상담등급)·F4(후속처리)·FAQ는 실제 판정한다.**
+요약·후속처리·FAQ필요는 EXAONE에 통화당 한 번 요청해 함께 받는다.
 바깥에서 부르는 방법은 바뀌지 않으므로 api/·web/은 지금 형태 그대로 쓰면 된다.
 
 **부분 실패를 허용한다** (명세 4.1). 모델이 없거나 ollama가 꺼져 있으면 해당 필드만
@@ -13,7 +13,7 @@ AI 파트에 있는데, 마스킹이 그 요구를 자동으로 만족시킨다.
 한 번 더 검사한다.
 """
 
-from callwrap_ai import classify, grade as grade_mod
+from callwrap_ai import classify, grade as grade_mod, summary as summary_mod
 from callwrap_ai.preprocess import utterances_to_text
 from callwrap_ai.schemas import (
     SUBCATEGORIES_BY_CATEGORY,
@@ -23,27 +23,12 @@ from callwrap_ai.schemas import (
     ConsultationType,
     Judgment,
     Speaker,
-    Summary,
     Transcript,
 )
 
 
 def _customer_indices(t: Transcript) -> list[int]:
     return [u.index for u in t.utterances if u.speaker is Speaker.CUSTOMER]
-
-
-def _dummy_summary(t: Transcript) -> Judgment[Summary]:
-    """F1은 아직 붙지 않았다. 화면이 깨지지 않게 형태만 채운다."""
-    head = [u.index for u in t.utterances][:2]
-    return Judgment(
-        value=Summary(
-            title="(미구현) 요약 대기",
-            inquiry="(미구현) F1 요약은 별도 담당이며 아직 연결되지 않았습니다.",
-            resolution="(미구현) F1 요약은 별도 담당이며 아직 연결되지 않았습니다.",
-        ),
-        confidence=0.0,
-        evidence_indices=head,
-    )
 
 
 def _check_hierarchy(category: str | None, subcategory: str | None) -> bool:
@@ -97,11 +82,16 @@ def analyze(transcript: Transcript) -> AnalysisResult:
     if grade_judgment is None:
         failures.append("grade")
 
-    # --- F1·F4·FAQ: 미구현 ---
-    failures += ["summarize", "needs_followup", "needs_faq"]
+    # --- F1 요약·F4 후속처리·FAQ (EXAONE 1회 호출) ---
+    summary_judgment = followup_judgment = faq_judgment = None
+    summary_result = summary_mod.summarize(transcript)
+    if summary_result is None:
+        failures += ["summarize", "needs_followup", "needs_faq"]
+    else:
+        summary_judgment, followup_judgment, faq_judgment = summary_result
 
     return AnalysisResult(
-        summary=_dummy_summary(transcript),
+        summary=summary_judgment,
         consultation_type=Judgment(
             value=ConsultationType.ETC, confidence=0.0,
             evidence_indices=[],
@@ -109,7 +99,7 @@ def analyze(transcript: Transcript) -> AnalysisResult:
         consultation_category=cat_judgment,
         consultation_subcategory=sub_judgment,
         grade=grade_judgment,
-        needs_followup=None,
-        needs_faq=None,
+        needs_followup=followup_judgment,
+        needs_faq=faq_judgment,
         failures=failures,
     )
