@@ -10,6 +10,18 @@ None을 돌려 부분 실패로 넘긴다.
 
 checkpoint 경로는 `CALLWRAP_MODEL_DIR` 환경변수로 바꿀 수 있다. 기본값은 저장소의
 `data/models/` 인데 이건 개발용이고, 서버 배포 시에는 환경변수로 지정한다.
+
+**추론 device 기본값은 CPU다** (`CALLWRAP_DEVICE=mps`로 켤 수 있다). MPS는 Celery
+prefork 자식 프로세스에서 못 쓴다 — Metal 컴파일러 서비스에 붙지 못해 잡히지 않는
+SIGABRT로 워커가 통째로 죽는다. 실제로 macOS에서 워커를 띄우고 콜을 하나 넣자마자 재현됐다:
+
+    MPSLibrary::MPSKey_Create internal error: Unable to get MPS kernel scan_add.
+    Error: Unable to reach MTLCompilerService.
+    Process 'ForkPoolWorker-8' exited with 'signal 6 (SIGABRT)'
+
+klue-roberta-base를 배치 1로 한 건 추론하는 정도면 CPU가 수십 ms라 MPS 이득이 거의 없다.
+서빙 경로에서 얻는 게 없는 최적화 때문에 프로세스가 죽는 건 남는 장사가 아니다.
+학습·평가(`train/`, `eval/`)는 각자 `pick_device()`로 MPS를 계속 쓴다 — 여기 기본값과 무관하다.
 """
 
 import os
@@ -23,6 +35,8 @@ DEFAULT_MODEL_DIR = Path(__file__).resolve().parents[2] / "data/models"
 CATEGORY_CKPT = "category-klue-roberta-base-seed42"
 SUBCATEGORY_CKPT = "subcategory-klue-roberta-base-seed42"
 MAX_LENGTH = 512  # 학습과 같은 값. 바꾸면 결과가 달라진다
+#: 추론 device. 서빙(Celery prefork)에서 MPS가 죽으므로 기본은 CPU. 필요하면 "mps"/"cuda"로 켠다.
+DEVICE = os.environ.get("CALLWRAP_DEVICE", "cpu")
 
 
 def model_dir() -> Path:
@@ -38,7 +52,7 @@ class _Classifier:
         from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
         self._torch = torch
-        self.device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
+        self.device = torch.device(DEVICE)
         self.tok = AutoTokenizer.from_pretrained(path)
         self.model = AutoModelForSequenceClassification.from_pretrained(path).to(self.device).eval()
         self.labels = [self.model.config.id2label[i] for i in range(len(self.model.config.id2label))]
