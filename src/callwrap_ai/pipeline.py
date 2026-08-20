@@ -1,6 +1,6 @@
 """analyze() — 모듈 조립. 소유: 김성진.
 
-현재 상태: **F1(요약)·F2(중분류·소분류)·F3(상담등급)·F4(후속처리)·FAQ는 실제 판정한다.**
+현재 상태: **F1(요약)·F2(상담유형·중분류·소분류)·F3(상담등급)·F4(후속처리)·FAQ 전부 실제 판정한다.**
 요약·후속처리·FAQ필요는 EXAONE에 통화당 한 번 요청해 함께 받는다.
 바깥에서 부르는 방법은 바뀌지 않으므로 api/·web/은 지금 형태 그대로 쓰면 된다.
 
@@ -13,7 +13,7 @@ AI 파트에 있는데, 마스킹이 그 요구를 자동으로 만족시킨다.
 한 번 더 검사한다.
 """
 
-from callwrap_ai import classify, grade as grade_mod, summary as summary_mod
+from callwrap_ai import classify, grade as grade_mod, sr_type, summary as summary_mod
 from callwrap_ai.preprocess import utterances_to_text
 from callwrap_ai.schemas import (
     SUBCATEGORIES_BY_CATEGORY,
@@ -44,6 +44,19 @@ def _check_hierarchy(category: str | None, subcategory: str | None) -> bool:
 def analyze(transcript: Transcript) -> AnalysisResult:
     failures: list[str] = []
     text = utterances_to_text(transcript.utterances)
+
+    # --- 상담유형(SR유형 8종) ---
+    type_judgment = None
+    got = sr_type.predict_type(transcript)
+    if got is None:
+        failures.append("classify_type")
+    else:
+        type_value, conf = got
+        type_judgment = Judgment(
+            value=ConsultationType(type_value),
+            confidence=conf,
+            evidence_indices=_customer_indices(transcript)[:2],
+        )
 
     # --- F2 중분류 ---
     cat_judgment = None
@@ -92,10 +105,7 @@ def analyze(transcript: Transcript) -> AnalysisResult:
 
     return AnalysisResult(
         summary=summary_judgment,
-        consultation_type=Judgment(
-            value=ConsultationType.ETC, confidence=0.0,
-            evidence_indices=[],
-        ),
+        consultation_type=type_judgment,
         consultation_category=cat_judgment,
         consultation_subcategory=sub_judgment,
         grade=grade_judgment,

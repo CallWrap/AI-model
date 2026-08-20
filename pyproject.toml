@@ -27,3 +27,16 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/callwrap_ai"]
+dev-mode-dirs = ["src", "src/model_SR/src"]
+
+# model_SR의 callwrap 패키지도 함께 담는다. SR유형 추론이 학습 때 쓴 전처리(화자 토큰·head+tail
+# 절단)와 모델 정의를 **그대로** 불러야 하기 때문이다 — 복사해두면 학습 코드가 바뀔 때 조용히
+# 갈라지고, 화자 토큰 하나만 어긋나도 성능이 날아가는데 눈에 띄지 않는다.
+# 소스 루트가 둘(src, src/model_SR/src)이라 packages 하나로는 안 잡혀서 아래 둘로 나눈다.
+#   force-include : 빌드된 wheel에 callwrap/으로 넣는다
+#   dev-mode-dirs : editable 설치(uv run)에서도 같은 이름으로 임포트되게 한다
+# 학습 전용 모듈(collect/generate 등)은 아무도 임포트하지 않으므로 의존성이 늘지 않는다.
+[tool.hatch.build.targets.wheel.force-include]
+"src/model_SR/src/callwrap" = "callwrap"
+
+
