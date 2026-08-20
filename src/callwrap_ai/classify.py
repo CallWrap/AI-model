@@ -83,6 +83,11 @@ def predict_subcategory(text: str, category: str | None) -> tuple[str, float] | 
     구조가 자동으로 만족시킨다.
 
     중분류를 모르면 마스킹 없이 29종에서 고른다.
+
+    **확률은 남은 후보 위에서 다시 정규화한다.** 29종 softmax 값을 그대로 돌려주면
+    실제로는 2~9지선다를 푼 결과인데 29지선다의 확률이 붙어 나온다 — 정답을 맞혀도
+    0.07 같은 값이 나와 web 3-tier가 전부 low로 떨어졌다. 분모를 실제 후보 집합으로
+    바꾸는 것뿐이라 순위는 변하지 않고 값만 정직해진다. (캘리브레이션은 별개 작업이다)
     """
     clf = _load(SUBCATEGORY_CKPT)
     if clf is None:
@@ -97,9 +102,10 @@ def predict_subcategory(text: str, category: str | None) -> tuple[str, float] | 
                 break
     if allowed:
         masked = [(v, i) for i, v in enumerate(p.tolist()) if clf.labels[i] in allowed]
-        if masked:
+        total = sum(v for v, _ in masked)
+        if masked and total > 0:
             score, i = max(masked)
-            return clf.labels[i], float(score)
+            return clf.labels[i], float(score / total)
     i = int(p.argmax())
     return clf.labels[i], float(p[i])
 
