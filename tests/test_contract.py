@@ -23,6 +23,7 @@ from callwrap_ai import (
 @pytest.fixture(autouse=True)
 def no_local_models(monkeypatch):
     """계약 테스트는 설치된 로컬 모델과 Ollama 상태에 의존하지 않는다."""
+    monkeypatch.setattr(pipeline.sr_type, "predict_type", lambda _: None)
     monkeypatch.setattr(pipeline.classify, "predict_category", lambda _: None)
     monkeypatch.setattr(pipeline.classify, "predict_subcategory", lambda *_: None)
     monkeypatch.setattr(pipeline.grade_mod, "judge", lambda _: None)
@@ -62,6 +63,7 @@ def make_transcript() -> Transcript:
 
 # analyze()가 낼 수 있는 실패 모듈명. 오타로 엉뚱한 값이 들어가는 것을 막는다.
 KNOWN_FAILURES = {
+    "classify_type",
     "classify_category",
     "classify_subcategory",
     "subcategory_hierarchy",
@@ -73,6 +75,7 @@ KNOWN_FAILURES = {
 
 # 실패 모듈명 -> 그 실패가 비우는 필드
 FAILURE_FIELD = {
+    "classify_type": "consultation_type",
     "classify_category": "consultation_category",
     "classify_subcategory": "consultation_subcategory",
     "subcategory_hierarchy": "consultation_subcategory",
