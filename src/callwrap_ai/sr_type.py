@@ -56,6 +56,7 @@ class _SRClassifier:
             pooling=config.get("pooling", "cls_mean"),
             use_speaker_embedding=config.get("use_speaker_embedding", True),
             vocab_size=config.get("vocab_size"),
+            pretrained=False,  # 추론만 함 — 아래서 state_dict로 덮어쓸 가중치를 미리 받을 필요 없다
         )
         model.load_state_dict(torch.load(path / "model.pt", map_location=self.device))
         self.model = model.to(self.device).eval()
@@ -89,6 +90,8 @@ def _load(ckpt: str) -> _SRClassifier | None:
         return _SRClassifier(path)
     except (ImportError, ModuleNotFoundError):
         return None  # torch/transformers 미설치 (기본 설치 환경)
+    except OSError:
+        return None  # 백본 config를 HF 허브/캐시에서 못 찾음(오프라인) — 부분 실패로 넘긴다
 
 
 def predict_type(transcript) -> tuple[str, float] | None:

@@ -33,10 +33,18 @@ class SRClassifier(nn.Module):
         pooling: str = "cls_mean",   # cls | mean | cls_mean
         use_speaker_embedding: bool = True,
         vocab_size: int | None = None,
+        pretrained: bool = True,
     ) -> None:
         super().__init__()
         self.config = AutoConfig.from_pretrained(backbone_name)
-        self.backbone = AutoModel.from_pretrained(backbone_name, config=self.config)
+        # 추론 전용 로딩(pretrained=False)에서는 사전학습 가중치를 안 받는다 — 바로 뒤에서
+        # fine-tuned state_dict로 전부 덮어써서 어차피 안 쓰인다. config(architecture)만
+        # 있으면 되므로 오프라인에서 백본 가중치 캐시가 없어도 OSError 없이 뜬다.
+        self.backbone = (
+            AutoModel.from_pretrained(backbone_name, config=self.config)
+            if pretrained
+            else AutoModel.from_config(self.config)
+        )
         if vocab_size is not None and vocab_size != self.backbone.config.vocab_size:
             self.backbone.resize_token_embeddings(vocab_size)
 
