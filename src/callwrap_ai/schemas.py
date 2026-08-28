@@ -204,6 +204,14 @@ class Summary(BaseModel):
     resolution: str = Field(description="처리내용 요약 2~3문장 (상담사 발화 기준)")
 
 
+class UtteranceSentiment(BaseModel):
+    """발화 하나의 감정 점수. 상담등급 계산에는 고객 점수만 사용한다."""
+
+    utterance_index: int = Field(ge=0, description="Transcript의 Utterance.index")
+    speaker: Speaker
+    score: float = Field(ge=-1, le=1, description="-1(매우 부정)~1(매우 긍정)")
+
+
 class AnalysisResult(BaseModel):
     """analyze()의 반환값.
 
@@ -218,6 +226,9 @@ class AnalysisResult(BaseModel):
         description="소분류 29종 — 보조 출력. 중분류와의 계층 정합은 SUBCATEGORIES_BY_CATEGORY로 검증"
     )
     grade: Judgment[ConsultationGrade] | None
+    utterance_sentiments: list[UtteranceSentiment] = Field(
+        default_factory=list, description="고객·상담사 발화별 감정 점수"
+    )
     needs_followup: Judgment[bool] | None
     needs_faq: Judgment[bool] | None = Field(
         description="반복 문의로 판단되어 FAQ 신규 생성이 필요한지 (7/14 회의 확정 스코프)"

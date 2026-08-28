@@ -1,7 +1,7 @@
 """analyze() — 모듈 조립. 소유: 김성진.
 
-현재 상태: **F1(요약)·F2(상담유형·중분류·소분류)·F3(상담등급)·F4(후속처리)·FAQ 전부 실제 판정한다.**
-요약·후속처리·FAQ필요는 EXAONE에 통화당 한 번 요청해 함께 받는다.
+현재 상태: **F1(요약)·F2(상담유형·중분류·소분류)·F3(상담등급)·FAQ를 판정한다.**
+요약·FAQ필요는 EXAONE이 생성하고 Gemma가 원문과 대조 검증한다. 후속처리 여부는 상담사가 정한다.
 바깥에서 부르는 방법은 바뀌지 않으므로 api/·web/은 지금 형태 그대로 쓰면 된다.
 
 **부분 실패를 허용한다** (명세 4.1). 모델이 없거나 ollama가 꺼져 있으면 해당 필드만
@@ -41,7 +41,8 @@ def _check_hierarchy(category: str | None, subcategory: str | None) -> bool:
     return False
 
 
-def analyze(transcript: Transcript) -> AnalysisResult:
+def analyze(transcript: Transcript, summary_transcript: Transcript | None = None) -> AnalysisResult:
+    """원본 전사를 분석한다. 요약에는 별도 안전 전사를 선택적으로 사용할 수 있다."""
     failures: list[str] = []
     text = utterances_to_text(transcript.utterances)
 
@@ -91,17 +92,24 @@ def analyze(transcript: Transcript) -> AnalysisResult:
             failures.append("subcategory_hierarchy")
 
     # --- F3 상담등급 (온디바이스 LLM 감정 점수 → 2축 규칙) ---
-    grade_judgment = grade_mod.judge(transcript)
+    grade_judgment, utterance_sentiments, counselor_sentiment_ok = (
+        grade_mod.analyze_sentiments(transcript)
+    )
     if grade_judgment is None:
         failures.append("grade")
+    if not counselor_sentiment_ok:
+        failures.append("counselor_sentiment")
 
-    # --- F1 요약·F4 후속처리·FAQ (EXAONE 1회 호출) ---
-    summary_judgment = followup_judgment = faq_judgment = None
-    summary_result = summary_mod.summarize(transcript)
+    # --- F1 요약·FAQ (EXAONE 생성 → Gemma 검증) ---
+    summary_judgment = faq_judgment = None
+    summary_result = summary_mod.summarize(summary_transcript or transcript)
     if summary_result is None:
-        failures += ["summarize", "needs_followup", "needs_faq"]
+        failures += ["summarize", "needs_faq"]
     else:
-        summary_judgment, followup_judgment, faq_judgment = summary_result
+        summary_judgment = summary_result.summary
+        faq_judgment = summary_result.needs_faq
+        if summary_result.validation_failed:
+            failures.append("validate_summary")
 
     return AnalysisResult(
         summary=summary_judgment,
@@ -109,7 +117,8 @@ def analyze(transcript: Transcript) -> AnalysisResult:
         consultation_category=cat_judgment,
         consultation_subcategory=sub_judgment,
         grade=grade_judgment,
-        needs_followup=followup_judgment,
+        utterance_sentiments=utterance_sentiments,
+        needs_followup=None,
         needs_faq=faq_judgment,
         failures=failures,
     )

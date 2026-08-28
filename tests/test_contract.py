@@ -26,7 +26,7 @@ def no_local_models(monkeypatch):
     monkeypatch.setattr(pipeline.sr_type, "predict_type", lambda _: None)
     monkeypatch.setattr(pipeline.classify, "predict_category", lambda _: None)
     monkeypatch.setattr(pipeline.classify, "predict_subcategory", lambda *_: None)
-    monkeypatch.setattr(pipeline.grade_mod, "judge", lambda _: None)
+    monkeypatch.setattr(pipeline.grade_mod, "analyze_sentiments", lambda _: (None, [], False))
     monkeypatch.setattr(pipeline.summary_mod, "summarize", lambda _: None)
 
 
@@ -68,9 +68,10 @@ KNOWN_FAILURES = {
     "classify_subcategory",
     "subcategory_hierarchy",
     "grade",
+    "counselor_sentiment",
     "summarize",
-    "needs_followup",
     "needs_faq",
+    "validate_summary",
 }
 
 # 실패 모듈명 -> 그 실패가 비우는 필드
@@ -80,7 +81,6 @@ FAILURE_FIELD = {
     "classify_subcategory": "consultation_subcategory",
     "subcategory_hierarchy": "consultation_subcategory",
     "grade": "grade",
-    "needs_followup": "needs_followup",
     "needs_faq": "needs_faq",
 }
 

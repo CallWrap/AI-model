@@ -13,6 +13,8 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+from callwrap_ai.transcript_sanitizer import sanitize_text
+
 ROOT = Path(__file__).resolve().parents[2]
 #: 로컬 개발/레포 체크아웃 상태에서 쓰는 경로 — 편집 소스는 여기(summary_v1~v6.md와 같은 자리).
 DEV_PROMPT = ROOT / "eval/prompts/faq_v1.md"
@@ -68,8 +70,8 @@ def _ask(prompt: str, model: str) -> str | None:
 def _format_cases(cases: list[dict]) -> str:
     lines = []
     for i, c in enumerate(cases):
-        inquiry = (c.get("inquiry") or "").strip() or "(문의 내용 없음)"
-        resolution = (c.get("resolution") or "").strip() or "(처리 내용 없음)"
+        inquiry = sanitize_text((c.get("inquiry") or "").strip()) or "(문의 내용 없음)"
+        resolution = sanitize_text((c.get("resolution") or "").strip()) or "(처리 내용 없음)"
         lines.append(f"[{i}] 문의: {inquiry}\n    처리: {resolution}")
     return "\n".join(lines)
 
@@ -102,8 +104,8 @@ def _parse(raw: str, num_cases: int) -> list[dict] | None:
             if isinstance(raw_indices, list) else []
         )
         result.append({
-            "question": question.strip(),
-            "answer": answer.strip(),
+            "question": sanitize_text(question.strip()),
+            "answer": sanitize_text(answer.strip()),
             "source_indices": indices,
         })
     return result or None

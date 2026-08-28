@@ -1,7 +1,7 @@
 """F3 상담등급 — 발화별 감정 점수를 2축 규칙으로 칭찬/악성/일반에 매핑한다.
 
-온디바이스 LLM(ollama)에 민원인 발화의 감정을 매기게 하고, 그 점수를 규칙에 넣는다.
-LLM 호출은 **통화당 1회**다 (발화마다 부르면 7배가 된다).
+온디바이스 LLM(ollama)에 고객·상담사 발화의 감정을 역할별로 따로 매기게 한다.
+고객 점수만 기존 2축 상담등급 규칙에 넣고, 상담사 점수는 관리 화면용으로만 보존한다.
 
 판정 규칙과 임계값은 `config/grade_rule.json`에 있다. 코드에 박지 않는 이유는
 3-tier UI의 90/60처럼 근거 없는 값이 굳어지는 것을 막기 위해서다 (명세 4.5).
@@ -21,12 +21,19 @@ from functools import lru_cache
 from pathlib import Path
 
 from callwrap_ai.preprocess import strip_emotion_markers
-from callwrap_ai.schemas import ConsultationGrade, Judgment, Speaker, Transcript
+from callwrap_ai.schemas import (
+    ConsultationGrade,
+    Judgment,
+    Speaker,
+    Transcript,
+    UtteranceSentiment,
+)
 
 ROOT = Path(__file__).resolve().parents[2]
 #: 로컬 개발/레포 체크아웃 상태에서 쓰는 경로 — 편집 소스는 여기.
 DEV_RULE = ROOT / "config/grade_rule.json"
 DEV_PROMPT = ROOT / "eval/prompts/sentiment_v1.md"
+DEV_COUNSELOR_PROMPT = ROOT / "eval/prompts/sentiment_counselor_v1.md"
 #: 패키지 설치 상태(server-fastapi가 git 소스로 callwrap-ai를 uv sync할 때)에서 쓰는 경로.
 # pyproject.toml의 [tool.hatch.build.targets.wheel]이 packages=["src/callwrap_ai"]만 포함해서
 # config/·eval/은 휠에 안 들어간다(summary.py와 동일한 문제 — 실제로 배포 컨테이너에서
@@ -38,6 +45,9 @@ DEV_PROMPT = ROOT / "eval/prompts/sentiment_v1.md"
 # 이 파일의 독스트링이 약속한 "ollama가 꺼져 있으면 None" 동작과 실패 모드를 통일한다.
 PACKAGED_RULE = Path(__file__).resolve().parent / "config" / "grade_rule.json"
 PACKAGED_PROMPT = Path(__file__).resolve().parent / "prompts" / "sentiment_v1.md"
+PACKAGED_COUNSELOR_PROMPT = (
+    Path(__file__).resolve().parent / "prompts" / "sentiment_counselor_v1.md"
+)
 API = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434") + "/api/generate"
 TIMEOUT = int(os.environ.get("CALLWRAP_LLM_TIMEOUT", "120"))
 
@@ -65,6 +75,23 @@ def _prompt() -> str | None:
         except (OSError, IndexError):
             continue
     return None  # 프롬프트 파일을 못 찾음 — 등급 판정 전체를 부분 실패로 넘긴다
+
+
+@lru_cache(maxsize=1)
+def _counselor_prompt() -> str | None:
+    env_override = os.environ.get("CALLWRAP_COUNSELOR_SENTIMENT_PROMPT")
+    candidates = (
+        [Path(env_override)]
+        if env_override
+        else [DEV_COUNSELOR_PROMPT, PACKAGED_COUNSELOR_PROMPT]
+    )
+    for path in candidates:
+        try:
+            text = path.read_text(encoding="utf-8")
+            return text.split("\n## 프롬프트\n", 1)[1].strip()
+        except (OSError, IndexError):
+            continue
+    return None
 
 
 def _ask(prompt: str, model: str) -> str | None:
@@ -104,22 +131,30 @@ def score_utterances(texts: list[str], model: str | None = None) -> list[float] 
     return _parse(raw, len(texts)) if raw else None
 
 
-def judge(transcript: Transcript, model: str | None = None) -> Judgment[ConsultationGrade] | None:
-    """Transcript -> 상담등급 판정. 실패하면 None (부분 실패).
+def score_counselor_utterances(
+    texts: list[str], model: str | None = None
+) -> list[float] | None:
+    """상담사 발화 목록 -> 발화별 감정 점수(-1~1). 실패 시 None."""
+    if not texts:
+        return []
+    rule = _rule()
+    prompt = _counselor_prompt()
+    if rule is None or prompt is None:
+        return None
+    lines = "\n".join(f"{i+1}. {strip_emotion_markers(t)}" for i, t in enumerate(texts))
+    raw = _ask(prompt.format(lines=lines), model or rule["model"])
+    return _parse(raw, len(texts)) if raw else None
 
-    2축 규칙:
-      score_min  < abusive_max_score_min  → 악성콜  가장 격한 발화가 얼마나 격했나
-      score_tail > praise_min_score_tail  → 칭찬콜  통화가 어떻게 끝났나
 
-    한 축으로는 안 된다. score_min만 쓰면 칭찬콜을 전부 일반으로 흘리고,
-    score_tail만 쓰면 악성 Recall이 0.85로 떨어진다.
-    """
-    cust = [u for u in transcript.utterances if u.speaker is Speaker.CUSTOMER]
-    scores = score_utterances([u.text for u in cust], model)
+def _judge_customer_scores(
+    cust, scores: list[float]
+) -> Judgment[ConsultationGrade] | None:
     if not scores:
         return None
 
     rule = _rule()
+    if rule is None:
+        return None
     low, high = rule["abusive_max_score_min"], rule["praise_min_score_tail"]
     k = max(1, len(scores) // 3)
     s_min, s_tail = min(scores), sum(scores[-k:]) / k
@@ -135,10 +170,54 @@ def judge(transcript: Transcript, model: str | None = None) -> Judgment[Consulta
         margin, span = min(s_min - low, high - s_tail), max(high - low, 1e-6)
         pick = scores.index(s_min)
 
-    # 확신도는 임계값에서 떨어진 거리다. **캘리브레이션된 확률이 아니다** —
-    # 3-tier UI 임계값에 물리기 전에 보정이 필요하다 (명세 9.3, Step 4).
     conf = max(0.0, min(1.0, margin / span)) if span > 0 else 0.0
     return Judgment(value=grade, confidence=round(conf, 4), evidence_indices=[cust[pick].index])
+
+
+def analyze_sentiments(
+    transcript: Transcript, model: str | None = None
+) -> tuple[Judgment[ConsultationGrade] | None, list[UtteranceSentiment], bool]:
+    """두 역할의 발화별 점수와 고객 점수 기반 상담등급을 함께 반환한다.
+
+    상담사 분석만 실패해도 고객 상담등급과 고객 발화 점수는 유지한다.
+    세 번째 반환값은 상담사 분석 성공 여부다.
+    """
+    cust = [u for u in transcript.utterances if u.speaker is Speaker.CUSTOMER]
+    counselors = [u for u in transcript.utterances if u.speaker is Speaker.COUNSELOR]
+    customer_scores = score_utterances([u.text for u in cust], model)
+    counselor_scores = score_counselor_utterances([u.text for u in counselors], model)
+
+    sentiments: list[UtteranceSentiment] = []
+    if customer_scores:
+        sentiments.extend(
+            UtteranceSentiment(utterance_index=u.index, speaker=u.speaker, score=score)
+            for u, score in zip(cust, customer_scores, strict=True)
+        )
+    if counselor_scores is not None:
+        sentiments.extend(
+            UtteranceSentiment(utterance_index=u.index, speaker=u.speaker, score=score)
+            for u, score in zip(counselors, counselor_scores, strict=True)
+        )
+    sentiments.sort(key=lambda item: item.utterance_index)
+
+    return (
+        _judge_customer_scores(cust, customer_scores or []),
+        sentiments,
+        counselor_scores is not None,
+    )
+
+
+def judge(transcript: Transcript, model: str | None = None) -> Judgment[ConsultationGrade] | None:
+    """Transcript -> 상담등급 판정. 실패하면 None (부분 실패).
+
+    2축 규칙:
+      score_min  < abusive_max_score_min  → 악성콜  가장 격한 발화가 얼마나 격했나
+      score_tail > praise_min_score_tail  → 칭찬콜  통화가 어떻게 끝났나
+
+    한 축으로는 안 된다. score_min만 쓰면 칭찬콜을 전부 일반으로 흘리고,
+    score_tail만 쓰면 악성 Recall이 0.85로 떨어진다.
+    """
+    return analyze_sentiments(transcript, model)[0]
 
 
 def is_ready(model: str | None = None) -> bool:

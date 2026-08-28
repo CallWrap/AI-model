@@ -35,7 +35,7 @@ def test_pipeline_records_failure_when_model_missing(monkeypatch):
     monkeypatch.setattr(sr_type, "predict_type", lambda _: None)
     monkeypatch.setattr(pipeline.classify, "predict_category", lambda _: None)
     monkeypatch.setattr(pipeline.classify, "predict_subcategory", lambda *_: None)
-    monkeypatch.setattr(pipeline.grade_mod, "judge", lambda _: None)
+    monkeypatch.setattr(pipeline.grade_mod, "analyze_sentiments", lambda _: (None, [], False))
     monkeypatch.setattr(pipeline.summary_mod, "summarize", lambda _: None)
 
     result = pipeline.analyze(make_transcript())
@@ -48,7 +48,7 @@ def test_pipeline_uses_predicted_type(monkeypatch):
     monkeypatch.setattr(sr_type, "predict_type", lambda _: ("시스템오류", 0.83))
     monkeypatch.setattr(pipeline.classify, "predict_category", lambda _: None)
     monkeypatch.setattr(pipeline.classify, "predict_subcategory", lambda *_: None)
-    monkeypatch.setattr(pipeline.grade_mod, "judge", lambda _: None)
+    monkeypatch.setattr(pipeline.grade_mod, "analyze_sentiments", lambda _: (None, [], False))
     monkeypatch.setattr(pipeline.summary_mod, "summarize", lambda _: None)
 
     result = pipeline.analyze(make_transcript())

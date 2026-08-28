@@ -1,4 +1,4 @@
-"""F1 요약·F4 후속처리·FAQ필요 — EXAONE 1회 호출로 함께 판정한다.
+"""F1 요약·FAQ필요 — EXAONE 생성 후 Gemma가 원문 대조 검증한다.
 
 기본 프롬프트는 평가에서 선택한 v6이다. 이후 프롬프트를 개선해도
 `CALLWRAP_SUMMARY_PROMPT`만 바꾸면 analyze() 계약과 코드는 그대로 유지된다.
@@ -20,12 +20,15 @@ import re
 import urllib.error
 import urllib.request
 from pathlib import Path
+from typing import NamedTuple
 
+from callwrap_ai import summary_validate
 from callwrap_ai.schemas import Judgment, Summary, Transcript
+from callwrap_ai.transcript_sanitizer import sanitize_text
 
 ROOT = Path(__file__).resolve().parents[2]
 #: 로컬 개발/레포 체크아웃 상태에서 쓰는 경로 — 편집 소스는 여기.
-DEV_PROMPT = ROOT / "eval/prompts/summary_v6.md"
+DEV_PROMPT = ROOT / "eval/prompts/summary_v7.md"
 #: 패키지 설치 상태(server-fastapi가 git 소스로 callwrap-ai를 uv sync할 때)에서 쓰는 경로.
 # pyproject.toml의 [tool.hatch.build.targets.wheel]이 packages=["src/callwrap_ai"]만 포함해서
 # eval/은 휠에 안 들어간다(실제로 빌드해서 확인함 — eval 관련 파일 0개). DEV_PROMPT만 보고 있으면
@@ -33,7 +36,7 @@ DEV_PROMPT = ROOT / "eval/prompts/summary_v6.md"
 # OSError를 던지고, 그게 _ask 호출 전에 잡혀서 "모델이 판단 못 함"과 똑같이 보인다 — 실제로는
 # 프롬프트 파일을 못 찾은 것뿐인데 구분이 안 됐던 버그. 그래서 내용이 같은 사본을
 # src/callwrap_ai/prompts/ 밑에 두고 순서대로 시도한다.
-PACKAGED_PROMPT = Path(__file__).resolve().parent / "prompts" / "summary_v6.md"
+PACKAGED_PROMPT = Path(__file__).resolve().parent / "prompts" / "summary_v7.md"
 DEFAULT_MODEL = "exaone3.5:7.8b"
 API = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434") + "/api/generate"
 TIMEOUT = int(os.environ.get("CALLWRAP_LLM_TIMEOUT", "120"))
@@ -86,6 +89,12 @@ _STRING_VALUE = '"{key}"\\s*:\\s*"((?:[^"\\\\]|\\\\.)*)"'
 _BOOL_VALUE = '"{key}"\\s*:\\s*(true|false)'
 
 
+class SummaryOutcome(NamedTuple):
+    summary: Judgment[Summary]
+    needs_faq: Judgment[bool]
+    validation_failed: bool
+
+
 def _token_spans(logprobs: list[dict]) -> list[tuple[int, int, float]]:
     """토큰 목록 -> [(시작 문자위치, 끝 문자위치, logprob)]. 형식이 다르면 빈 리스트.
 
@@ -134,7 +143,7 @@ def _parse(raw: str, logprobs: list[dict], transcript: Transcript):
     fields = ("title", "inquiry", "resolution")
     if not all(isinstance(data.get(f), str) and data[f].strip() for f in fields):
         return None
-    if not all(isinstance(data.get(f), bool) for f in ("needs_followup", "needs_faq")):
+    if not isinstance(data.get("needs_faq"), bool):
         return None
 
     valid = {u.index for u in transcript.utterances}
@@ -144,7 +153,7 @@ def _parse(raw: str, logprobs: list[dict], transcript: Transcript):
     evidence = [i for i in raw_evidence
                 if isinstance(i, int) and i in valid][:3]
     # 판정별로 근거가 된 토큰 구간이 다르므로 confidence도 따로 뽑는다 — 요약은 세 문장
-    # 전체의 기하평균, 후속처리·FAQ는 각자 true/false 토큰 하나의 확률이다.
+    # 전체의 기하평균, FAQ는 true/false 토큰 하나의 확률이다.
     # logprobs가 없으면(구버전 ollama 등) 전부 0.0 — 없는 값을 지어내지 않는다.
     spans = _token_spans(logprobs)
     text = "".join(item["token"] for item in logprobs) if spans else ""
@@ -154,18 +163,12 @@ def _parse(raw: str, logprobs: list[dict], transcript: Transcript):
         return [r for r in found if r is not None]
 
     summary_confidence = _confidence(spans, ranges(_STRING_VALUE, *fields)) or 0.0
-    followup_confidence = _confidence(spans, ranges(_BOOL_VALUE, "needs_followup")) or 0.0
     faq_confidence = _confidence(spans, ranges(_BOOL_VALUE, "needs_faq")) or 0.0
 
     return (
         Judgment(
-            value=Summary(**{f: data[f].strip() for f in fields}),
+            value=Summary(**{f: sanitize_text(data[f].strip()) for f in fields}),
             confidence=summary_confidence,
-            evidence_indices=evidence,
-        ),
-        Judgment(
-            value=data["needs_followup"],
-            confidence=followup_confidence,
             evidence_indices=evidence,
         ),
         Judgment(
@@ -177,7 +180,7 @@ def _parse(raw: str, logprobs: list[dict], transcript: Transcript):
 
 
 def summarize(transcript: Transcript, model: str | None = None):
-    """Transcript -> (요약, 후속처리, FAQ필요). 실패하면 None."""
+    """EXAONE 생성 → Gemma 검증 결과. 생성 실패 시에만 None."""
     dialog = "\n".join(
         f"[{u.index}] {u.speaker.value}: {u.text}" for u in transcript.utterances
     )
@@ -189,11 +192,16 @@ def summarize(transcript: Transcript, model: str | None = None):
     answer = _ask(prompt, selected_model)
     if answer is None or not answer[0].strip():
         return None
-    result = _parse(*answer, transcript)
-    if result is not None:
-        return result
+    candidate = _parse(*answer, transcript)
+    if candidate is not None:
+        validated = summary_validate.validate(transcript, candidate)
+        return SummaryOutcome(*(validated or candidate), validation_failed=validated is None)
 
     answer = _ask(prompt + "\n\n반드시 JSON 하나만 출력하세요.", selected_model)
     if answer is None or not answer[0].strip():
         return None
-    return _parse(*answer, transcript)
+    candidate = _parse(*answer, transcript)
+    if candidate is None:
+        return None
+    validated = summary_validate.validate(transcript, candidate)
+    return SummaryOutcome(*(validated or candidate), validation_failed=validated is None)

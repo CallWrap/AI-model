@@ -1,7 +1,8 @@
-"""F1 요약·F4 후속처리·FAQ필요 production 모듈 검증."""
+"""F1 요약·FAQ필요 production 모듈 검증."""
 
 import json
 import math
+import pytest
 
 import callwrap_ai.pipeline as pipeline
 import callwrap_ai.summary as summary_mod
@@ -27,12 +28,16 @@ def valid_response() -> str:
             "title": "본인부담금 납부 문의",
             "inquiry": "수급자가 본인부담금 납부 방법을 문의함.",
             "resolution": "가상계좌로 납부하도록 안내함.",
-            "needs_followup": False,
             "needs_faq": True,
             "evidence_indices": [1, 2, 99],
         },
         ensure_ascii=False,
     )
+
+
+@pytest.fixture(autouse=True)
+def keep_valid_candidate(monkeypatch):
+    monkeypatch.setattr(summary_mod.summary_validate, "validate", lambda _transcript, candidate: candidate)
 
 
 def fake_logprobs(response: str, logprob_of: dict[str, float] | None = None) -> list[dict]:
@@ -53,7 +58,7 @@ def answer(response: str, logprob_of: dict[str, float] | None = None):
     return response, fake_logprobs(response, logprob_of)
 
 
-def test_summarize_returns_three_judgments(monkeypatch):
+def test_summarize_returns_summary_and_faq(monkeypatch):
     seen: dict[str, str] = {}
 
     def fake_ask(prompt: str, model: str):
@@ -65,13 +70,12 @@ def test_summarize_returns_three_judgments(monkeypatch):
     result = summary_mod.summarize(make_transcript())
 
     assert result is not None
-    summary, followup, faq = result
-    assert summary.value.title == "본인부담금 납부 문의"
-    assert followup.value is False
-    assert faq.value is True
+    assert result.summary.value.title == "본인부담금 납부 문의"
+    assert result.needs_faq.value is True
+    assert result.validation_failed is False
     # logprob 0 = 확률 1.0. 토큰 확률이 그대로 confidence로 온다.
-    assert summary.confidence == followup.confidence == faq.confidence == 1.0
-    assert summary.evidence_indices == followup.evidence_indices == faq.evidence_indices == [1, 2]
+    assert result.summary.confidence == result.needs_faq.confidence == 1.0
+    assert result.summary.evidence_indices == result.needs_faq.evidence_indices == [1, 2]
     assert "[1] 고객: 본인부담금은 어떻게 내나요?" in seen["prompt"]
     assert seen["model"] == "exaone3.5:7.8b"
 
@@ -89,7 +93,7 @@ def test_summarize_ignores_invalid_evidence_indices(monkeypatch):
     result = summary_mod.summarize(make_transcript())
 
     assert result is not None
-    assert result[0].evidence_indices == []
+    assert result.summary.evidence_indices == []
 
 
 def test_summarize_returns_none_when_ollama_is_unavailable(monkeypatch):
@@ -122,21 +126,38 @@ def test_confidence_comes_from_token_probabilities(monkeypatch):
     }
     monkeypatch.setattr(summary_mod, "_ask", lambda *_: answer(response, weak))
 
-    summary, followup, faq = summary_mod.summarize(make_transcript())
+    result = summary_mod.summarize(make_transcript())
 
-    assert summary.confidence == round(math.exp(-1.0), 4)
-    assert followup.confidence == 1.0  # false 토큰은 확률 1.0 그대로
-    assert faq.confidence == 1.0
+    assert result.summary.confidence == round(math.exp(-1.0), 4)
+    assert result.needs_faq.confidence == 1.0
 
 
 def test_confidence_is_zero_without_logprobs(monkeypatch):
     """logprobs를 안 주는 구버전 ollama — 요약은 그대로 나오고 confidence만 0이 된다."""
     monkeypatch.setattr(summary_mod, "_ask", lambda *_: (valid_response(), []))
 
-    summary, followup, faq = summary_mod.summarize(make_transcript())
+    result = summary_mod.summarize(make_transcript())
 
-    assert summary.value.title == "본인부담금 납부 문의"
-    assert summary.confidence == followup.confidence == faq.confidence == 0.0
+    assert result.summary.value.title == "본인부담금 납부 문의"
+    assert result.summary.confidence == result.needs_faq.confidence == 0.0
+
+
+def test_summarize_keeps_exaone_result_when_validator_fails(monkeypatch):
+    monkeypatch.setattr(summary_mod, "_ask", lambda *_: answer(valid_response()))
+    monkeypatch.setattr(summary_mod.summary_validate, "validate", lambda *_: None)
+
+    result = summary_mod.summarize(make_transcript())
+
+    assert result.summary.value.title == "본인부담금 납부 문의"
+    assert result.validation_failed is True
+
+
+def test_default_prompt_requires_concise_numbering_and_forbids_profanity_restore():
+    prompt = summary_mod._prompt()
+    assert "1." in prompt and "2." in prompt
+    assert "간결" in prompt
+    assert "[비속어]" in prompt and "복원" in prompt
+    assert "needs_followup" not in prompt
 
 
 def test_ask_returns_response_and_logprobs(monkeypatch):
@@ -189,18 +210,22 @@ def test_pipeline_uses_summary_result(monkeypatch):
         confidence=0.0,
         evidence_indices=[1, 2],
     )
-    followup = Judgment(value=False, confidence=0.0, evidence_indices=[1, 2])
     faq = Judgment(value=True, confidence=0.0, evidence_indices=[1, 2])
 
-    monkeypatch.setattr(summary_mod, "summarize", lambda _: (summary, followup, faq))
+    monkeypatch.setattr(
+        summary_mod,
+        "summarize",
+        lambda _: summary_mod.SummaryOutcome(summary, faq, validation_failed=False),
+    )
+    monkeypatch.setattr(pipeline.sr_type, "predict_type", lambda _: None)
     monkeypatch.setattr(pipeline.classify, "predict_category", lambda _: None)
     monkeypatch.setattr(pipeline.classify, "predict_subcategory", lambda *_: None)
-    monkeypatch.setattr(pipeline.grade_mod, "judge", lambda _: None)
+    monkeypatch.setattr(pipeline.grade_mod, "analyze_sentiments", lambda _: (None, [], True))
 
     result = pipeline.analyze(transcript)
 
     assert result.summary == summary
-    assert result.needs_followup == followup
+    assert result.needs_followup is None
     assert result.needs_faq == faq
     assert "summarize" not in result.failures
     assert "needs_followup" not in result.failures
