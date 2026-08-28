@@ -29,7 +29,7 @@ def test_validation_pass_keeps_exaone_candidate(monkeypatch):
 
     def fake_ask(prompt, model):
         seen.update(prompt=prompt, model=model)
-        return '{"valid": true}'
+        return '{"summary_valid": true, "needs_faq_agrees": true}'
 
     monkeypatch.setattr(validator, "_ask", fake_ask)
 
@@ -43,11 +43,11 @@ def test_validation_pass_keeps_exaone_candidate(monkeypatch):
 
 def test_validation_correction_returns_grounded_replacement(monkeypatch):
     corrected = {
-        "valid": False,
+        "summary_valid": False,
+        "needs_faq_agrees": False,
         "title": "결제 확인 문의",
         "inquiry": "결제가 되지 않아 원인을 문의함.",
         "resolution": "가상계좌 상태를 확인하도록 안내함.",
-        "needs_faq": False,
         "evidence_indices": [0, 1, 99],
     }
     monkeypatch.setattr(validator, "_ask", lambda *_: json.dumps(corrected, ensure_ascii=False))
@@ -57,9 +57,26 @@ def test_validation_correction_returns_grounded_replacement(monkeypatch):
     assert summary.value.title == "결제 확인 문의"
     assert summary.confidence == 0.0
     assert summary.evidence_indices == [0, 1]
-    assert faq.value is False
+    assert faq == candidate()[1]
+
+
+def test_validation_warns_on_faq_disagreement_without_overriding_exaone(monkeypatch, caplog):
+    monkeypatch.setattr(
+        validator,
+        "_ask",
+        lambda *_: '{"summary_valid": true, "needs_faq_agrees": false}',
+    )
+
+    result = validator.validate(transcript(), candidate())
+
+    assert result == candidate()
+    assert "needs_faq" in caplog.text
 
 
 def test_validation_rejects_incomplete_correction(monkeypatch):
-    monkeypatch.setattr(validator, "_ask", lambda *_: '{"valid": false, "title": "부족"}')
+    monkeypatch.setattr(
+        validator,
+        "_ask",
+        lambda *_: '{"summary_valid": false, "needs_faq_agrees": true, "title": "부족"}',
+    )
     assert validator.validate(transcript(), candidate()) is None

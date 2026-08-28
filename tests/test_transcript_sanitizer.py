@@ -3,10 +3,11 @@ from callwrap_ai.transcript_sanitizer import sanitize_text, sanitize_transcript
 
 
 def test_sanitize_text_masks_profanity_variants_without_masking_benign_words():
-    text = "시발점은 정상 단어지만 씨발, 씨*발, ㅆㅂ과 (욕설)은 가려야 함"
+    text = "시발점과 결제 시 발생 문제는 정상 표현이지만 씨발, 씨*발, 시*발, ㅆㅂ과 (욕설)은 가려야 함"
 
     assert sanitize_text(text) == (
-        "시발점은 정상 단어지만 [비속어], [비속어], [비속어]과 [비속어]은 가려야 함"
+        "시발점과 결제 시 발생 문제는 정상 표현이지만 "
+        "[비속어], [비속어], [비속어], [비속어]과 [비속어]은 가려야 함"
     )
 
 
